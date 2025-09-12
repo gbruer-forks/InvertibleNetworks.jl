@@ -15,8 +15,18 @@ k1 = 3
 k2 = 3
 
 
-
-for activation in [ReLUlayer(), LeakyReLUlayer()]
+for activation in [
+    ReLUlayer(),
+    LeakyReLUlayer(),
+    SigmoidLayer(),
+    Sigmoid2Layer(),
+    ExpClampLayer(),
+    IdentityActivation(),
+    SoftplusLayer(),
+    TanhLayer(),
+    CoshLayer(),
+    SinhLayer(),
+]
     println("Testing activation $(activation)")
     # Input
     X = glorot_uniform(nx, ny, n_in, batchsize);
