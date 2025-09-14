@@ -8,6 +8,8 @@ export Sigmoid, SigmoidInv, SigmoidGrad
 export GaLU, GaLUgrad
 export ExpClamp, ExpClampInv, ExpClampGrad
 export ReLUlayer, LeakyReLUlayer, SigmoidLayer, Sigmoid2Layer, GaLUlayer, ExpClampLayer
+export IdentityActivation, SoftplusLayer, TanhLayer, CoshLayer, SinhLayer
+export apply_backward
 
 
 ###############################################################################
@@ -18,6 +20,25 @@ struct ActivationFunction
     inverse::Union{Nothing, Function}
     backward::Function
 end
+
+"""
+Helper function for cases where the caller does not know if the activation function is invertible.
+"""
+function apply_backward(activation::ActivationFunction, Δy::AbstractArray{T, N}, x::AbstractArray{T, N}, y::AbstractArray{T, N}) where {T, N}
+    apply_backward(activation.backward, activation.inverse, Δy, x, y)
+end
+
+function apply_backward(backward::Function, inverse::Nothing, Δy::AbstractArray{T, N}, x::AbstractArray{T, N}, y::AbstractArray{T, N}) where {T, N}
+    backward(Δy, x)
+end
+
+function apply_backward(backward::Function, inverse::Function, Δy::AbstractArray{T, N}, x::AbstractArray{T, N}, y::AbstractArray{T, N}) where {T, N}
+    backward(Δy, y)
+end
+
+
+IdentityActivation() = ActivationFunction(identity, identity, IdentityGrad)
+IdentityGrad(Δy::AbstractArray{T, N}, x::AbstractArray{T, N}) where {T, N} = Δy
 
 function ReLUlayer()
     return ActivationFunction(ReLU, nothing, ReLUgrad)
@@ -46,7 +67,7 @@ function GaLUlayer()
 end
 
 function ExpClampLayer()
-    return ActivationFunction(x -> ExpClamp(x), y -> ExpClampInv(y/2f0), (Δy, y) -> ExpClampGrad(Δy*2f0, y/2f0))
+    return ActivationFunction(x -> 2 * ExpClamp(x), y -> ExpClampInv(y/2), (Δy, y) -> ExpClampGrad(Δy*2, y/2))
 end
 
 
@@ -309,3 +330,68 @@ function ExpClampGrad(Δy::AbstractArray{T, N}, y::AbstractArray{T, N}; x=nothin
 end
 
 ExpClampGrad(Δy::AbstractArray{T, N}, ::Nothing; x=nothing, clamp=T(2)) where {T, N} = clamp * T(0.636) * Δy .* y ./ (1 .+ x.^2)
+
+
+
+SoftplusLayer() = ActivationFunction(Softplus, SoftplusInv, SoftplusGrad)
+
+function Softplus(x::AbstractArray{T, N}) where {T, N}
+    return log.(1 .+ exp.(x))
+end
+
+function SoftplusInv(y::AbstractArray{T, N}) where {T, N}
+    if any(y .≈ 0)
+        throw(InputError("Input contains zeros."))
+    else
+        return log.(exp.(y) .- 1)
+    end
+end
+
+function SoftplusGrad(Δy::AbstractArray{T, N}, y::AbstractArray{T, N}) where {T, N}
+    return (exp.(y) .- 1) ./ exp.(y) .* Δy
+end
+
+
+TanhLayer() = ActivationFunction(Tanh, TanhInv, TanhGrad)
+
+function Tanh(x::AbstractArray{T, N}) where {T, N}
+    return tanh.(x)
+end
+
+function TanhInv(y::AbstractArray{T, N}) where {T, N}
+    if any(abs.(y) .> 1 - 1f-6)
+        throw(InputError("Input outside tanh range."))
+    else
+        return atanh.(y)
+    end
+end
+
+function TanhGrad(Δy::AbstractArray{T, N}, y::AbstractArray{T, N}) where {T, N}
+    return (1 .- y .^ 2) .* Δy
+end
+
+
+CoshLayer() = ActivationFunction(Cosh, nothing, CoshGrad)
+
+function Cosh(x::AbstractArray{T, N}) where {T, N}
+    return cosh.(x)
+end
+
+function CoshGrad(Δy::AbstractArray{T, N}, x::AbstractArray{T, N}) where {T, N}
+    return sinh.(x) .* Δy
+end
+
+
+SinhLayer() = ActivationFunction(Sinh, SinhInv, SinhGrad)
+
+function Sinh(x::AbstractArray{T, N}) where {T, N}
+    return sinh.(x)
+end
+
+function SinhInv(y::AbstractArray{T, N}) where {T, N}
+    return asinh.(y)
+end
+
+function SinhGrad(Δy::AbstractArray{T, N}, y::AbstractArray{T, N}) where {T, N}
+    return cosh.(asinh.(y)) .* Δy
+end

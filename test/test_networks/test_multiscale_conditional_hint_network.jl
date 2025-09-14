@@ -14,9 +14,9 @@ batchsize = 2
 L = 2
 K = 2
 
-function inv_test(nx, ny, n_in, batchsize, logdet, squeeze_type, split_scales)
-    print("\nMultiscale Conditional HINT invertibility test with squeeze_type=$(squeeze_type), split_scales=$(split_scales), logdet=$(logdet)\n")
-    CH = NetworkMultiScaleConditionalHINT(n_in, n_hidden, L, K; squeezer = squeeze_type(), logdet=logdet, split_scales=split_scales)
+function inv_test(nx, ny, n_in, batchsize, logdet, squeeze_type, split_scales, activation)
+    print("\nMultiscale Conditional HINT invertibility test with squeeze_type=$(squeeze_type), split_scales=$(split_scales), logdet=$(logdet), activation=$(activation)\n")
+    CH = NetworkMultiScaleConditionalHINT(n_in, n_hidden, L, K; squeezer = squeeze_type(), logdet=logdet, split_scales=split_scales, activation=activation)
 
     # Input image and data
     X = randn(Float32, nx, ny, n_in, batchsize)
@@ -60,9 +60,9 @@ function loss(CH, X, Y)
     return f, ΔX, ΔY
 end
 
-function grad_test_X(nx, ny, n_channel, batchsize, logdet, squeeze_type, split_scales)
-    print("\nMultiscale Conditional HINT gradient test with squeeze_type=$(squeeze_type), split_scales=$(split_scales), logdet=$(logdet)\n")
-    CH = NetworkMultiScaleConditionalHINT(n_in, n_hidden, L, K; squeezer = squeeze_type(), logdet=logdet, split_scales=split_scales)
+function grad_test_X(nx, ny, n_channel, batchsize, logdet, squeeze_type, split_scales, activation)
+    print("\nMultiscale Conditional HINT gradient test with squeeze_type=$(squeeze_type), split_scales=$(split_scales), logdet=$(logdet), activation=$(activation)\n")
+    CH = NetworkMultiScaleConditionalHINT(n_in, n_hidden, L, K; squeezer = squeeze_type(), logdet=logdet, split_scales=split_scales, activation=activation)
 
 
     # Input image
@@ -95,8 +95,10 @@ end
 for squeeze_i in [ShuffleLayer, WaveletLayer, HaarLayer]
     for split_scales in [true, false]
         for logdet in [false, true]
-            inv_test(nx, ny, n_in, batchsize, logdet, squeeze_i, split_scales)
-            grad_test_X(nx, ny, n_in, batchsize, logdet, squeeze_i, split_scales)
+            for activation in [SigmoidLayer(), CoshLayer()]
+                inv_test(nx, ny, n_in, batchsize, logdet, squeeze_i, split_scales, activation)
+                grad_test_X(nx, ny, n_in, batchsize, logdet, squeeze_i, split_scales, activation)
+            end
         end
     end
 end
