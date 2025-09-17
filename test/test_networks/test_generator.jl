@@ -35,7 +35,7 @@ for j=1:depth
 end
 
 # Forward pass
-function forward(AN, L, X)
+function forward_custom(AN, L, X)
     logdet = 0f0
     for j=1:depth
         X_, logdet1 = AN[j].forward(X)
@@ -46,7 +46,7 @@ function forward(AN, L, X)
 end
 
 # Backward pass
-function backward(AN, L, ΔX, X)
+function backward_custom(AN, L, ΔX, X)
     logdet = 0f0
     for j=depth:-1:1
         ΔX_, X_ = L[j].backward(ΔX, X)
@@ -61,8 +61,8 @@ end
 X = swirl(1000)
 X0 = swirl(1000)
 dX = X - X0
-Y = forward(AN, L, X)[1]
-X_ = backward(AN, L, Y, Y)[2]
+Y = forward_custom(AN, L, X)[1]
+X_ = backward_custom(AN, L, Y, Y)[2]
 @test isapprox(norm(X_ - X)/norm(X), 0f0; atol=1f-3)
 
 
@@ -70,9 +70,9 @@ X_ = backward(AN, L, Y, Y)[2]
 
 # Loss
 function loss(AN, L, X)
-    Y_, logdet = forward(AN, L, X)
+    Y_, logdet = forward_custom(AN, L, X)
     f = .5f0/batchsize*norm(Y_)^2 - logdet
-    ΔX, X = backward(AN, L, 1f0/batchsize*Y_, Y_)
+    ΔX, X = backward_custom(AN, L, 1f0/batchsize*Y_, Y_)
     return f, ΔX, L[1].RB.W1.grad, AN[1].s.grad
 end
 
@@ -96,7 +96,7 @@ end
 @test isapprox(err2[end] / (err2[1]/4^(maxiter-1)), 1f0; atol=1f1)
 
 # Gradient test for weights
-forward(AN0, L0, X) # initialize parameters
+forward_custom(AN0, L0, X) # initialize parameters
 ANini = deepcopy(AN0) 
 Lini  = deepcopy(L0)
 dW = L[1].RB.W1.data - L0[1].RB.W1.data

@@ -100,7 +100,7 @@ function ResidualBlock(n_in, n_hidden; n_out=nothing, activation::ActivationFunc
 end
 
 # Constructor for given weights
-function ResidualBlock(W1, W2, W3, b1, b2; activation::ActivationFunction=ReLUlayer(), p1=1, p2=1, s1=1, s2=1, fan=false, ndims=2, final_activation)
+function ResidualBlock(W1, W2, W3, b1, b2; activation::ActivationFunction=ReLUlayer(), p1=1, p2=1, s1=1, s2=1, fan=false, ndims=2, final_activation=activation)
 
     # Make weights parameters
     W1 = Parameter(W1)
