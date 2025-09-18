@@ -8,14 +8,14 @@ struct ConditionalLayerCorrelation <: NeuralNetLayer
 end
 
 function CorrelationShiftForward(x::AbstractArray{T, N}, c::AbstractArray{T, Nc}) where {T, N, Nc}
-    return -Sinh(x) .* c
+    return -DampedSinh(x) .* c
 end
 
 function CorrelationShiftGrad(Δy::AbstractArray{T, N}, y::AbstractArray{T, N}, x::AbstractArray{T,N}, c::AbstractArray{T, Nc}) where {T, N, Nc}
-    return -SinhGrad(Δy, -y ./ c) .* c, -Sinh(x) .* Δy
+    return -DampedSinhGrad(Δy, -y ./ c) .* c, -DampedSinh(x) .* Δy
 end
 
-const CorrelationScaleLayer::ActivationFunction = CoshLayer()
+const CorrelationScaleLayer::ActivationFunction = DampedCoshLayer()
 const CorrelationShiftLayer::ActivationFunction = ActivationFunction(CorrelationShiftForward, nothing, CorrelationShiftGrad)
 
 @Flux.functor ConditionalLayerCorrelation
@@ -40,7 +40,7 @@ function ConditionalLayerCorrelation_splitdims(n_in)
     if split_num == 0
         split_num = 1
     end
-    in_split   = n_in-split_num
+    in_split = n_in - split_num
     return in_split, split_num
 end
 
@@ -70,18 +70,21 @@ function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalL
         w1, w2 = tensor_split(w)
     end
 
-    # Get condition to use for shift.
+    # Get condition to use for shift. Need to be able to multiply it component-wise with X.
     Nb = size(C, N)
     if isnothing(L.C_weights.data)
         L.C_weights.data = glorot_uniform(prod(size(C)[1:(N-1)]))
         L.C_weights.data = reshape(L.C_weights.data, 1, size(L.C_weights.data)...)
     end
     C_scalar = L.C_weights.data * reshape(C, :, Nb)
-    C_scalar = reshape(C_scalar, ones(Int, N-2)..., :, Nb)
+    C_scalar_broadcast = reshape(C_scalar, ones(Int, N-2)..., :, Nb)
 
     # Apply correlation decoupling.
+
+    # w1 can easily be too large, such that Sm is Inf. Need to initialize it properly or limit it to a valid range.
     Sm = CorrelationScaleLayer.forward(w1)
-    Tm = CorrelationShiftLayer.forward(w2, C_scalar)
+    Tm = CorrelationShiftLayer.forward(w2, C_scalar_broadcast)
+
     Y1 = Sm .* X1 + Tm
 
     Y = tensor_cat(Y1, Y2)
@@ -110,14 +113,14 @@ function inverse(Y::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalL
         w1, w2 = tensor_split(w)
     end
 
-    # Get condition to use for shift.
+    # Get condition to use for shift. Need to be able to multiply it component-wise with X.
     Nb = size(C, N)
     C_scalar = L.C_weights.data * reshape(C, :, Nb)
-    C_scalar = reshape(C_scalar, (1 for i in 1:N-2)..., :, Nb)
+    C_scalar_broadcast = reshape(C_scalar, (1 for i in 1:N-2)..., :, Nb)
 
     # Invert correlation decoupling.
     Sm = CorrelationScaleLayer.forward(w1)
-    Tm = CorrelationShiftLayer.forward(w2, C_scalar)
+    Tm = CorrelationShiftLayer.forward(w2, C_scalar_broadcast)
     X1 = (Y1 - Tm) ./ Sm
 
     X0 = tensor_cat(X1, X2)
@@ -150,7 +153,7 @@ function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, C::AbstractA
     end
     ΔX1 = ΔY1 .* Sm
 
-    # Get condition to use for shift.
+    # Get condition to use for shift. Need to be able to multiply it component-wise with X.
     Nb = size(C, N)
     C_scalar = L.C_weights.data * reshape(C, :, Nb)
     C_scalar_broadcast = reshape(C_scalar, (1 for i in 1:N-2)..., :, Nb)
@@ -159,8 +162,10 @@ function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, C::AbstractA
     # Backpropagate activations.
     Δw1 = apply_backward(CorrelationScaleLayer, ΔSm, w1, Sm)
     Δw2, ΔC_scalar_broadcast = CorrelationShiftLayer.backward(ΔTm, Tm, w2, C_scalar_broadcast)
+    ΔC_scalar_broadcast = reshape(ΔC_scalar_broadcast, :, size(C_scalar)[2:end]...)
+    ΔC_scalar = sum(ΔC_scalar_broadcast; dims=1)
 
-    ΔC_scalar = dropdims(sum(reshape(ΔC_scalar_broadcast, :, size(C_scalar)...); dims=1); dims=1)
+    ΔC_vector = L.C_weights.data' * ΔC_scalar
     ΔC_weights = ΔC_scalar * reshape(C, :, Nb)'
 
     isnothing(L.C_weights.grad) ? (L.C_weights.grad = ΔC_weights) : (L.C_weights.grad += ΔC_weights)
@@ -172,11 +177,12 @@ function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, C::AbstractA
         Δw = tensor_cat(Δw1, Δw2)
     end
 
-
     # Backpropagate subnetwork.
     ΔX2_ΔC = backward(Δw, tensor_cat(X2, C), L.subnetwork)
     ΔX2, ΔC = tensor_split(ΔX2_ΔC; split_index=size(ΔY2)[N-1])
     ΔX2 += ΔY2
+
+    ΔC += reshape(ΔC_vector, size(ΔC))
 
     # Backpropagate prenetwork.
 

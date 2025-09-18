@@ -8,7 +8,7 @@ export Sigmoid, SigmoidInv, SigmoidGrad
 export GaLU, GaLUgrad
 export ExpClamp, ExpClampInv, ExpClampGrad
 export ReLUlayer, LeakyReLUlayer, SigmoidLayer, Sigmoid2Layer, GaLUlayer, ExpClampLayer
-export IdentityActivation, SoftplusLayer, TanhLayer, CoshLayer, SinhLayer
+export IdentityActivation, SoftplusLayer, TanhLayer, CoshLayer, SinhLayer, DampedCoshLayer
 export apply_backward
 
 
@@ -204,7 +204,7 @@ function SigmoidInv(y::AbstractArray{T, N}; low=0f0, high=1f0) where {T, N}
     if sum(isapprox.(y, 0f-6)) == 0
         return _sigmoidinv.(y, low, high)
     else
-        throw(InputError("Input contains zeros."))
+        throw(DomainError("Input contains zeros."))
     end
 end
 
@@ -305,7 +305,7 @@ ExpClamp(x::AbstractArray{T, N}; clamp=T(2)) where {T, N} = exp.(clamp * T(0.636
 """
 function ExpClampInv(y::AbstractArray{T, N}; clamp=T(2)) where {T, N}
     if any(y .≈ 0)
-        throw(InputError("Input contains zeros."))
+        throw(DomainError("Input contains zeros."))
     else
         return tan.(log.(y) / clamp / T(0.636))
     end
@@ -336,14 +336,14 @@ ExpClampGrad(Δy::AbstractArray{T, N}, ::Nothing; x=nothing, clamp=T(2)) where {
 SoftplusLayer() = ActivationFunction(Softplus, SoftplusInv, SoftplusGrad)
 
 function Softplus(x::AbstractArray{T, N}) where {T, N}
-    return log.(1 .+ exp.(x))
+    return ifelse.(x .> 20, x, log.(1 .+ exp.(x)))
 end
 
 function SoftplusInv(y::AbstractArray{T, N}) where {T, N}
     if any(y .≈ 0)
-        throw(InputError("Input contains zeros."))
+        throw(DomainError("Input contains zeros."))
     else
-        return log.(exp.(y) .- 1)
+        return ifelse.(y .> 20, y, log.(exp.(y) .- 1))
     end
 end
 
@@ -360,7 +360,7 @@ end
 
 function TanhInv(y::AbstractArray{T, N}) where {T, N}
     if any(abs.(y) .> 1 - 1f-6)
-        throw(InputError("Input outside tanh range."))
+        throw(DomainError("Input outside tanh range."))
     else
         return atanh.(y)
     end
@@ -382,6 +382,28 @@ function CoshGrad(Δy::AbstractArray{T, N}, x::AbstractArray{T, N}) where {T, N}
 end
 
 
+DampedCoshLayer() = ActivationFunction(DampedCosh, nothing, DampedCoshGrad)
+
+function DampedCosh(x::AbstractArray{T, N}; a::T=T(10)) where {T, N}
+    z0 = x ./ a
+    z1 = Tanh(z0)
+    z2 = z1 .* a
+    y = Cosh(z2)
+    return y
+end
+
+function DampedCoshGrad(Δy::AbstractArray{T, N}, x::AbstractArray{T, N}; a::T=T(10)) where {T, N}
+    z0 = x ./ a
+    z1 = Tanh(z0)
+    z2 = z1 .* a
+    y = Cosh(z2)
+    Δz2 = CoshGrad(Δy, z2)
+    Δz1 = Δz2 .* a
+    Δz0 = TanhGrad(Δz1, z1)
+    Δx = Δz0 ./ a
+    return Δx
+end
+
 SinhLayer() = ActivationFunction(Sinh, SinhInv, SinhGrad)
 
 function Sinh(x::AbstractArray{T, N}) where {T, N}
@@ -394,4 +416,34 @@ end
 
 function SinhGrad(Δy::AbstractArray{T, N}, y::AbstractArray{T, N}) where {T, N}
     return cosh.(asinh.(y)) .* Δy
+end
+
+DampedSinhLayer() = ActivationFunction(DampedSinh, DampedSinhInv, DampedSinhGrad)
+
+function DampedSinh(x::AbstractArray{T, N}; a::T = T(10)) where {T, N}
+    z0 = x ./ a
+    z1 = Tanh(z0)
+    z2 = z1 .* a
+    y = Sinh(z2)
+    return y
+end
+
+function DampedSinhInv(y::AbstractArray{T, N}; a::T = T(10)) where {T, N}
+    z2 = SinhInv(y)
+    z1 = z2 ./ a
+    z0 = TanhInv(z1)
+    x = z0 .* a
+    return x
+end
+
+function DampedSinhGrad(Δy::AbstractArray{T, N}, y::AbstractArray{T, N}; a::T = T(10)) where {T, N}
+    z2 = SinhInv(y)
+    z1 = z2 ./ a
+    z0 = TanhInv(z1)
+    x = z0 .* a
+    Δz2 = SinhGrad(Δy, y)
+    Δz1 = Δz2 .* a
+    Δz0 = TanhGrad(Δz1, z1)
+    Δx = Δz0 ./ a
+    return Δx
 end

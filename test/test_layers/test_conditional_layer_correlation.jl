@@ -63,11 +63,6 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name, do_flux=no
     end
 
     if do_flux
-        # @show f0 f_f f
-        # @show norm(ΔX) norm(ΔX_f)
-        # @test f ≈ f0
-        # @test norm(ΔX) ≈ norm(ΔX_f)
-        # @show norm(ΔX - ΔX_f) ./ max(norm(ΔX), norm(ΔX_f))
         @test f_f ≈ f0
         @test norm(ΔX - ΔX_f) ./ max(norm(ΔX), norm(ΔX_f)) < 2f-6
     end
@@ -106,93 +101,19 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name, do_flux=no
         f, back_f = Flux.pullback((a,b) -> a - b, f1, logdet)
 
         Δf = 1f0
-        # @show Δf
         Δf1, Δlogdet = back_f(Δf)
-        # @show Δf1
-        # @show Δlogdet
         ΔY, = back_f1(Δf1)
-        # @show ΔY
         ΔP1t, = back_Y_logdet((ΔY, Δlogdet))
         ΔP1 = [Parameter(a.data, a.grad) for a in ΔP1t]
-
-
-        # @show f0 f_f
-        # @show typeof(ΔP) typeof(ΔP_f) typeof(ΔP1)
-        # @show norm(ΔP) norm(ΔP_f)
-        # @show norm(ΔP - ΔP_f) ./ max(norm(ΔP), norm(ΔP_f))
-        # @show norm(ΔP[1] - ΔP_f[1]) ./ max(norm(ΔP[1]), norm(ΔP_f[1]))
 
         @test f_f ≈ f0
         @test norm(ΔP - ΔP_f) ./ max(norm(ΔP), norm(ΔP_f)) < 2f-6
     end
 
     set_params!(L, deepcopy(P))
-    # println("Really breaking it down now")
-    # let X=X, C=Cond, L=L, N=4
-    #     first = function (X, C, L)
-    #         X0 = X
-
-    #         X1, X2 = InvertibleNetworks.tensor_split(X0)
-    #         if length(X1) == 0
-    #             X1, X2 = X2, X1
-    #         end
-
-    #         Y2 = copy(X2)
-
-    #         # Cat conditioning variable C into network input
-    #         w = forward(InvertibleNetworks.tensor_cat(X2, C), L.subnetwork)
-    #         return X1, Y2, w
-    #     end
-    #     (X1, Y2, w), back_X1_Y2_w = Flux.pullback(first, X, C, L)
-
-    #     second = function (w, X1, L, C)
-    #         # Split subnetwork output to get scale and shift parts.
-    #         if size(w)[1:N-1] == size(X1)[1:N-1]
-    #             w1 = w
-    #             w2 = w
-    #         else
-    #             w1, w2 = InvertibleNetworks.tensor_split(w)
-    #         end
-
-    #         # Get condition to use for shift.
-    #         Nb = 1
-    #         C_scalar = L.C_weights.data * reshape(C, :, Nb)
-    #         C_scalar = reshape(C_scalar, ones(Int, N-2)..., :, Nb)
-    #         return w1, w2, C_scalar
-    #     end
-    #     (w1, w2, C_scalar), back_w1_w2_C_scalar = Flux.pullback(second, w, X1, L, C)
-
-    #     third = function (w1, w2, C_scalar)
-    #         # Apply correlation decoupling.
-    #         Sm = InvertibleNetworks.CorrelationScaleLayer.forward(w1)
-    #         Tm = InvertibleNetworks.CorrelationShiftLayer.forward(w2, C_scalar)
-    #         return Sm, Tm
-    #     end
-    #     (Sm, Tm), back_Sm_Tm = Flux.pullback(third, w1, w2, C_scalar)
-
-    #     fourth = function (Sm, X1, Tm, Y2)
-    #         Y1 = Sm .* X1 + Tm
-    #         Y = tensor_cat(Y1, Y2)
-    #         return Y
-    #     end
-    #     Y, back_Y = Flux.pullback(fourth, Sm, X1, Tm, Y2)
-
-    #     logdet, back_logdet = Flux.pullback(InvertibleNetworks.scale_logdet_forward, Sm)
-
-    #     # Go backwards.
-    #     Δx_Sm_1, = back_logdet(Δlogdet)
-    #     Δx_Sm_2, Δx_X1a, Δx_Tm, Δx_Y2 = back_Y(ΔY)
-    #     Δx_Sm, = Δx_Sm_1 + Δx_Sm_2
-    #     Δx_w1, Δx_w2, Δx_C_scalar = back_Sm_Tm((Δx_Sm, Δx_Tm))
-    #     Δx_w, Δx_X1b, Δx_L1, Δx_C1 = back_w1_w2_C_scalar((Δx_w1, Δx_w2, Δx_C_scalar))
-    #     Δx_X, Δx_C2, Δx_L2 = back_X1_Y2_w((Δx_X1a, Δx_Y2, Δx_w))
-    #     # @show C_scalar w2 Tm
-    # end
-
-    # error("DONE")
 
     # Test each parameter.
-    # @show P ΔP ΔP_f
+    do_taylor_test = length(P) < 6
     for (i, (p, dp, Δp)) in enumerate(zip(P, dP, ΔP))
         println("    $name: testing parameter $i")
         loss_test = function (p_vec)
@@ -201,14 +122,21 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name, do_flux=no
             return loss(L, P, X, Cond; with_grad=false)
         end
 
-        println("    $name parameter $i: First with our gradient")
-        grad_test(loss_test, deepcopy(p.data), deepcopy(dp.data), deepcopy(Δp.data); maxiter=20, h0=4f0, hfactor=5f-1, eT=TT, unittest=:test)
         if do_flux
             Δp_f = ΔP_f[i]
-            @show norm(Δp - Δp_f) ./ max(norm(Δp), norm(Δp_f))
+        end
+
+        if do_taylor_test
+            println("    $name parameter $i: First with our gradient")
+            do_flux && @show norm(Δp - Δp_f) ./ max(norm(Δp), norm(Δp_f))
+            grad_test(loss_test, deepcopy(p.data), deepcopy(dp.data), deepcopy(Δp.data); maxiter=20, h0=4f0, hfactor=5f-1, eT=TT, unittest=:test)
+        end
+
+        if do_flux
+            do_taylor_test && @show norm(Δp - Δp_f) ./ max(norm(Δp), norm(Δp_f))
             @test norm(Δp - Δp_f) ./ max(norm(Δp), norm(Δp_f)) < 2f-6 skip=false
-            println("    $name parameter $i: Then with Flux's gradient")
-            grad_test(loss_test, deepcopy(p.data), deepcopy(dp.data), deepcopy(Δp_f.data); maxiter=20, h0=4f0, hfactor=5f-1, eT=TT, unittest=:test)
+            do_taylor_test && println("    $name parameter $i: Then with Flux's gradient")
+            do_taylor_test && grad_test(loss_test, deepcopy(p.data), deepcopy(dp.data), deepcopy(Δp_f.data); maxiter=20, h0=4f0, hfactor=5f-1, eT=TT, unittest=:test)
         end
     end
 
@@ -223,7 +151,6 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name, do_flux=no
     end
     f0, ΔX = loss_test(deepcopy(P); with_grad=true)
     ΔP = deepcopy(get_grads(L))
-    # @show P ΔP
 
     if do_flux
         println("           $name parameters: Starting Flux forward")
@@ -234,7 +161,6 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name, do_flux=no
         ΔP_f = [Parameter(a.data, a.grad) for a in ΔP_fT]
 
         println("           $name parameters: Done Flux")
-        # @show P ΔP_f
 
         @test norm(ΔP - ΔP_f) ./ max(norm(ΔP), norm(ΔP_f)) < 2f-6
     end
@@ -253,232 +179,317 @@ end
 nx = 5
 ny = 11
 n_channel = 3
-batchsize = 7
+batchsize = 10
 in_split, split_num = InvertibleNetworks.ConditionalLayerCorrelation_splitdims(n_channel)
 
-# Input images
 TT = Float64
 X = randn(TT, nx, ny, n_channel, batchsize)
-Cond = randn(TT, nx, ny, n_channel, batchsize)
 X0 = randn(TT, nx, ny, n_channel, batchsize)
 Y0 = randn(TT, nx, ny, n_channel, batchsize)
 dX = X - X0
 
-# Test with the simplest configuration.
-name = "ConditionalLayerCorrelation with no subnetworks"
-@testset verbose = true "$name (out_chan=$out_chan)" for out_chan in [split_num, 2*split_num]
+# Test activation functions.
+name = "Cosh"
+@testset verbose = true "$name" begin
     println("Testing $name")
-    layer_conv1x1 = nothing
-    layer_constant = LayerConstant(glorot_uniform(nx, ny, out_chan))
-    L = ConditionalLayerCorrelation(nothing, layer_constant; logdet=true)
 
-    if TT != Float32
-        forward(Float32.(X), Float32.(Cond), L)
-        P = deepcopy(get_params(L))
-        for p in P
-            p.data = TT.(p.data)
-        end
-        set_params!(L, deepcopy(P))
-    else
-        forward(X, Cond, L)
-        P = deepcopy(get_params(L))
-    end
+    Sm = InvertibleNetworks.Cosh(X)
+    ΔSm = randn(TT, size(Sm))
+    ΔX = InvertibleNetworks.CoshGrad(ΔSm, X)
 
-    # Set up for parameters test.
-    dP = deepcopy(P)
-    for (p, dp) in zip(P, dP)
-        dp.data = randn(eltype(p.data), size(p.data))
-        dp.data ./= norm(p.data)
-    end
-
-    conditional_layer_test_inverse(L, X, Cond, dX)
-    conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name)
+    Sm2, back = Flux.pullback(InvertibleNetworks.Cosh, deepcopy(X))
+    @test norm(Sm - Sm2) == 0
+    ΔX2, = back(ΔSm)
+    @test norm(ΔX - ΔX2) < 1f-6
 end
 
-# Test Conv1x1
-name = "Conv1x1NoMutate"
-@testset verbose=true "$name" begin
+name = "Sinh"
+@testset verbose = true "$name" begin
     println("Testing $name")
-    layer_conv1x1 = Conv1x1(n_channel)
-    layer_conv1x1_nomutate = Conv1x1NoMutate(n_channel)
 
-    P = deepcopy(get_params(layer_conv1x1))
-    if TT != Float32
-        for p in P
-            p.data = TT.(p.data)
-        end
-        set_params!(layer_conv1x1, deepcopy(P))
-    end
-    set_params!(layer_conv1x1_nomutate, deepcopy(P))
+    Sm = InvertibleNetworks.Sinh(X)
+    ΔSm = randn(TT, size(Sm))
+    ΔX = InvertibleNetworks.SinhGrad(ΔSm, Sm)
 
-    Y = forward(X, layer_conv1x1)
-    Y_f = forward(X, layer_conv1x1_nomutate)
-
-    # @show norm(Y - Y_f) ./ norm(Y)
-    @test norm(Y - Y_f) ./ norm(Y) < 2f-6
-
-    ΔY = randn(eltype(Y), size(Y))
-    ΔX = inverse((ΔY, Y), layer_conv1x1)[1]
-    ΔP = deepcopy(get_grads(layer_conv1x1))
-
-    forward_test = function (X, P)
-        set_params!(layer_conv1x1_nomutate, P)
-        forward(X, layer_conv1x1_nomutate)
-    end
-    Y_f, back = Flux.pullback(forward_test, deepcopy(X), deepcopy(P))
-
-    # @show norm(Y - Y_f) ./ norm(Y)
-    @test norm(Y - Y_f) ./ norm(Y) < 2f-6
-
-    ΔX_f, ΔP_fT = back(ΔY)
-    ΔP_f = [Parameter(a.data, a.grad) for a in ΔP_fT]
-
-    # @show norm(ΔX - ΔX_f) ./ norm(ΔX)
-    # @show norm(ΔP - ΔP_f) ./ norm(ΔP)
-    @test norm(ΔX - ΔX_f) ./ norm(ΔX) < 2f-6
-    @test norm(ΔP - ΔP_f) ./ norm(ΔP) < 2f-6
+    Sm2, back = Flux.pullback(InvertibleNetworks.Sinh, deepcopy(X))
+    @test norm(Sm - Sm2) == 0
+    ΔX2, = back(ΔSm)
+    @test norm(ΔX - ΔX2) < 2f-5
 end
 
-# Test with Conv1x1NoMutate.
-name = "ConditionalLayerCorrelation with Conv1x1NoMutate"
-@testset verbose=true "$name" begin
+name = "DampedCosh"
+@testset verbose = true "$name" begin
     println("Testing $name")
-    layer_conv1x1 = Conv1x1NoMutate(n_channel)
-    layer_constant = LayerConstant(glorot_uniform(nx, ny, split_num))
-    L = ConditionalLayerCorrelation(layer_conv1x1, layer_constant; logdet=true)
 
-    if TT != Float32
-        forward(Float32.(X), Float32.(Cond), L)
-        P = deepcopy(get_params(L))
-        for p in P
-            p.data = TT.(p.data)
-        end
-        set_params!(L, deepcopy(P))
-    else
-        forward(X, Cond, L)
-        P = deepcopy(get_params(L))
-    end
+    Sm = InvertibleNetworks.DampedCosh(X)
+    ΔSm = randn(TT, size(Sm))
+    ΔX = InvertibleNetworks.DampedCoshGrad(ΔSm, X)
 
-    # Set up for parameters test.
-    dP = deepcopy(P)
-    for (p, dp) in zip(P, dP)
-        dp.data = randn(eltype(p.data), size(p.data))
-        dp.data ./= norm(p.data)
-    end
-
-    conditional_layer_test_inverse(L, X, Cond, dX)
-    conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name)
+    Sm2, back = Flux.pullback(InvertibleNetworks.DampedCosh, deepcopy(X))
+    @test norm(Sm - Sm2) == 0
+    ΔX2, = back(ΔSm)
+    @test norm(ΔX - ΔX2) < 2f-5
 end
 
-# Test with Conv1x1.
-name = "ConditionalLayerCorrelation with Conv1x1"
-@testset verbose=true "$name" begin
+name = "DampedSinh"
+@testset verbose = true "$name" begin
     println("Testing $name")
-    layer_conv1x1 = Conv1x1(n_channel)
-    layer_constant = LayerConstant(glorot_uniform(nx, ny, split_num))
-    L = ConditionalLayerCorrelation(layer_conv1x1, layer_constant; logdet=true)
 
-    if TT != Float32
-        forward(Float32.(X), Float32.(Cond), L)
-        P = deepcopy(get_params(L))
-        for p in P
-            p.data = TT.(p.data)
-        end
-        set_params!(L, deepcopy(P))
-    else
-        forward(X, Cond, L)
-        P = deepcopy(get_params(L))
-    end
+    Sm = InvertibleNetworks.DampedSinh(X)
+    ΔSm = randn(TT, size(Sm))
+    ΔX = InvertibleNetworks.DampedSinhGrad(ΔSm, Sm)
 
-    # Set up for parameters test.
-    dP = deepcopy(P)
-    for (p, dp) in zip(P, dP)
-        dp.data = randn(eltype(p.data), size(p.data))
-        dp.data ./= norm(p.data)
-    end
-
-    conditional_layer_test_inverse(L, X, Cond, dX)
-    conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name)
+    Sm2, back = Flux.pullback(InvertibleNetworks.DampedSinh, deepcopy(X))
+    @test norm(Sm - Sm2) == 0
+    ΔX2, = back(ΔSm)
+    @test norm(ΔX - ΔX2) < 2f-5
 end
 
-name = "ConditionalLayerCorrelation with ResidualBlock"
-@testset verbose=true "$name (out_chan=$out_chan)" for out_chan in [split_num, 2 * split_num]
+name = "CorrelationScaleLayer"
+@testset verbose = true "$name" begin
     println("Testing $name")
-    k1 = 3
-    k2 = 3
-    p1 = 1
-    p2 = 1
-    fan = true
-    n_hidden = 4
-    activation = SoftplusLayer()
-    final_activation = IdentityActivation()
-    layer_resblock = ResidualBlock(in_split+n_channel, n_hidden; n_out=out_chan, k1, k2, p1, p2, fan, activation, final_activation)
-    L = ConditionalLayerCorrelation(nothing, layer_resblock; logdet=true)
 
-    if TT != Float32
-        forward(Float32.(X), Float32.(Cond), L)
-        P = deepcopy(get_params(L))
-        for p in P
-            p.data = TT.(p.data)
-        end
-        set_params!(L, deepcopy(P))
-    else
-        forward(X, Cond, L)
-        P = deepcopy(get_params(L))
-    end
+    Sm = InvertibleNetworks.CorrelationScaleLayer.forward(X)
+    ΔSm = randn(TT, size(Sm))
+    ΔX = apply_backward(InvertibleNetworks.CorrelationScaleLayer, ΔSm, X, Sm)
 
-    # Set up for parameters test.
-    dP = deepcopy(P)
-    for (p, dp) in zip(P, dP)
-        dp.data = randn(eltype(p.data), size(p.data))
-        a = norm(p.data)
-        if a != 0
-            dp.data ./= a
-        end
-    end
-
-    conditional_layer_test_inverse(L, X, Cond, dX)
-    conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name)
+    Sm2, back = Flux.pullback(InvertibleNetworks.CorrelationScaleLayer.forward, deepcopy(X))
+    @test norm(Sm - Sm2) == 0
+    ΔX2, = back(ΔSm)
+    @test norm(ΔX - ΔX2) < 2f-5
 end
 
 
-name = "ConditionalLayerCorrelation with ResidualBlock and Conv1x1NoMutate"
-@testset verbose=true "$name (out_chan=$out_chan)" for out_chan in [split_num, 2 * split_num]
+name = "CorrelationShiftLayer"
+@testset verbose = true "$name" begin
     println("Testing $name")
-    k1 = 3
-    k2 = 3
-    p1 = 1
-    p2 = 1
-    fan = true
-    n_hidden = 4
-    layer_conv1x1 = Conv1x1NoMutate(n_channel)
-    activation = SoftplusLayer()
-    final_activation = IdentityActivation()
-    layer_resblock = ResidualBlock(in_split+n_channel, n_hidden; n_out=out_chan, k1, k2, p1, p2, fan, activation, final_activation)
-    L = ConditionalLayerCorrelation(layer_conv1x1, layer_resblock; logdet=true)
 
-    if TT != Float32
-        forward(Float32.(X), Float32.(Cond), L)
-        P = deepcopy(get_params(L))
-        for p in P
-            p.data = TT.(p.data)
+    Tm = InvertibleNetworks.CorrelationShiftLayer.forward(X, dX)
+    ΔTm = randn(TT, size(Tm))
+    ΔX, ΔdX = InvertibleNetworks.CorrelationShiftLayer.backward(ΔTm, Tm, X, dX)
+
+    Tm2, back = Flux.pullback(InvertibleNetworks.CorrelationShiftLayer.forward, deepcopy(X), deepcopy(dX))
+    @test norm(Tm - Tm2) == 0
+    ΔX2, ΔdX2 = back(ΔTm)
+    @test norm(ΔX - ΔX2) < 2f-5
+    @test norm(ΔdX - ΔdX2) < 2f-5
+end
+
+@testset verbose = true "ConditionalLayerCorrelation (n_channel_cond=$n_channel_cond)" for n_channel_cond in [n_channel, n_channel+2]
+    Cond = randn(TT, nx, ny, n_channel_cond, batchsize)
+
+    # Test with the simplest configuration.
+    name = "ConditionalLayerCorrelation with no subnetworks"
+    @testset verbose = true "$name (out_chan=$out_chan)" for out_chan in [split_num, 2*split_num]
+        println("Testing $name")
+        layer_conv1x1 = nothing
+        layer_constant = LayerConstant(glorot_uniform(nx, ny, out_chan))
+        L = ConditionalLayerCorrelation(nothing, layer_constant; logdet=true)
+
+        if TT != Float32
+            forward(Float32.(X), Float32.(Cond), L)
+            P = deepcopy(get_params(L))
+            for p in P
+                p.data = TT.(p.data)
+            end
+            set_params!(L, deepcopy(P))
+        else
+            forward(X, Cond, L)
+            P = deepcopy(get_params(L))
         end
-        set_params!(L, deepcopy(P))
-    else
-        forward(X, Cond, L)
-        P = deepcopy(get_params(L))
+
+        # Set up for parameters test.
+        dP = deepcopy(P)
+        for (p, dp) in zip(P, dP)
+            dp.data = randn(eltype(p.data), size(p.data))
+            dp.data ./= norm(p.data)
+        end
+
+        conditional_layer_test_inverse(L, X, Cond, dX)
+        conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name)
     end
 
-    # Set up for parameters test.
-    dP = deepcopy(P)
-    for (p, dp) in zip(P, dP)
-        dp.data = randn(eltype(p.data), size(p.data))
-        a = norm(p.data)
-        if a != 0
-            dp.data ./= a
+    # Test Conv1x1
+    name = "Conv1x1NoMutate"
+    @testset verbose=true "$name" begin
+        println("Testing $name")
+        layer_conv1x1 = Conv1x1(n_channel)
+        layer_conv1x1_nomutate = Conv1x1NoMutate(n_channel)
+
+        P = deepcopy(get_params(layer_conv1x1))
+        if TT != Float32
+            for p in P
+                p.data = TT.(p.data)
+            end
+            set_params!(layer_conv1x1, deepcopy(P))
         end
+        set_params!(layer_conv1x1_nomutate, deepcopy(P))
+
+        Y = forward(X, layer_conv1x1)
+        Y_f = forward(X, layer_conv1x1_nomutate)
+
+        @test norm(Y - Y_f) ./ norm(Y) < 2f-6
+
+        ΔY = randn(eltype(Y), size(Y))
+        ΔX = inverse((ΔY, Y), layer_conv1x1)[1]
+        ΔP = deepcopy(get_grads(layer_conv1x1))
+
+        forward_test = function (X, P)
+            set_params!(layer_conv1x1_nomutate, P)
+            forward(X, layer_conv1x1_nomutate)
+        end
+        Y_f, back = Flux.pullback(forward_test, deepcopy(X), deepcopy(P))
+
+        @test norm(Y - Y_f) ./ norm(Y) < 2f-6
+
+        ΔX_f, ΔP_fT = back(ΔY)
+        ΔP_f = [Parameter(a.data, a.grad) for a in ΔP_fT]
+
+        @test norm(ΔX - ΔX_f) ./ norm(ΔX) < 2f-6
+        @test norm(ΔP - ΔP_f) ./ norm(ΔP) < 2f-6
     end
 
-    conditional_layer_test_inverse(L, X, Cond, dX)
-    conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name)
+    # Test with Conv1x1NoMutate.
+    name = "ConditionalLayerCorrelation with Conv1x1NoMutate"
+    @testset verbose=true "$name" begin
+        println("Testing $name")
+        layer_conv1x1 = Conv1x1NoMutate(n_channel)
+        layer_constant = LayerConstant(glorot_uniform(nx, ny, split_num))
+        L = ConditionalLayerCorrelation(layer_conv1x1, layer_constant; logdet=true)
+
+        if TT != Float32
+            forward(Float32.(X), Float32.(Cond), L)
+            P = deepcopy(get_params(L))
+            for p in P
+                p.data = TT.(p.data)
+            end
+            set_params!(L, deepcopy(P))
+        else
+            forward(X, Cond, L)
+            P = deepcopy(get_params(L))
+        end
+
+        # Set up for parameters test.
+        dP = deepcopy(P)
+        for (p, dp) in zip(P, dP)
+            dp.data = randn(eltype(p.data), size(p.data))
+            dp.data ./= norm(p.data)
+        end
+
+        conditional_layer_test_inverse(L, X, Cond, dX)
+        conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name)
+    end
+
+    # Test with Conv1x1.
+    name = "ConditionalLayerCorrelation with Conv1x1"
+    @testset verbose=true "$name" begin
+        println("Testing $name")
+        layer_conv1x1 = Conv1x1(n_channel)
+        layer_constant = LayerConstant(glorot_uniform(nx, ny, split_num))
+        L = ConditionalLayerCorrelation(layer_conv1x1, layer_constant; logdet=true)
+
+        if TT != Float32
+            forward(Float32.(X), Float32.(Cond), L)
+            P = deepcopy(get_params(L))
+            for p in P
+                p.data = TT.(p.data)
+            end
+            set_params!(L, deepcopy(P))
+        else
+            forward(X, Cond, L)
+            P = deepcopy(get_params(L))
+        end
+
+        # Set up for parameters test.
+        dP = deepcopy(P)
+        for (p, dp) in zip(P, dP)
+            dp.data = randn(eltype(p.data), size(p.data))
+            dp.data ./= norm(p.data)
+        end
+
+        conditional_layer_test_inverse(L, X, Cond, dX)
+        conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name)
+    end
+
+    name = "ConditionalLayerCorrelation with ResidualBlock"
+    @testset verbose=true "$name (out_chan=$out_chan)" for out_chan in [split_num, 2 * split_num]
+        println("Testing $name")
+        k1 = 3
+        k2 = 3
+        p1 = 1
+        p2 = 1
+        fan = true
+        n_hidden = 4
+        activation = SoftplusLayer()
+        final_activation = IdentityActivation()
+        layer_resblock = ResidualBlock(in_split+n_channel_cond, n_hidden; n_out=out_chan, k1, k2, p1, p2, fan, activation, final_activation)
+        L = ConditionalLayerCorrelation(nothing, layer_resblock; logdet=true)
+
+        if TT != Float32
+            forward(Float32.(X), Float32.(Cond), L)
+            P = deepcopy(get_params(L))
+            for p in P
+                p.data = TT.(p.data)
+            end
+            set_params!(L, deepcopy(P))
+        else
+            forward(X, Cond, L)
+            P = deepcopy(get_params(L))
+        end
+
+        # Set up for parameters test.
+        dP = deepcopy(P)
+        for (p, dp) in zip(P, dP)
+            dp.data = randn(eltype(p.data), size(p.data))
+            a = norm(p.data)
+            if a != 0
+                dp.data ./= a
+            end
+        end
+
+        conditional_layer_test_inverse(L, X, Cond, dX)
+        conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name)
+    end
+
+
+    name = "ConditionalLayerCorrelation with ResidualBlock and Conv1x1NoMutate"
+    @testset verbose=true "$name (out_chan=$out_chan)" for out_chan in [split_num, 2 * split_num]
+        println("Testing $name")
+        k1 = 3
+        k2 = 3
+        p1 = 1
+        p2 = 1
+        fan = true
+        n_hidden = 4
+        layer_conv1x1 = Conv1x1NoMutate(n_channel)
+        activation = SoftplusLayer()
+        final_activation = IdentityActivation()
+        layer_resblock = ResidualBlock(in_split+n_channel_cond, n_hidden; n_out=out_chan, k1, k2, p1, p2, fan, activation, final_activation)
+        L = ConditionalLayerCorrelation(layer_conv1x1, layer_resblock; logdet=true)
+
+        if TT != Float32
+            forward(Float32.(X), Float32.(Cond), L)
+            P = deepcopy(get_params(L))
+            for p in P
+                p.data = TT.(p.data)
+            end
+            set_params!(L, deepcopy(P))
+        else
+            forward(X, Cond, L)
+            P = deepcopy(get_params(L))
+        end
+
+        # Set up for parameters test.
+        dP = deepcopy(P)
+        for (p, dp) in zip(P, dP)
+            dp.data = randn(eltype(p.data), size(p.data))
+            a = norm(p.data)
+            if a != 0
+                dp.data ./= a
+            end
+        end
+
+        conditional_layer_test_inverse(L, X, Cond, dX)
+        conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name)
+    end
 end

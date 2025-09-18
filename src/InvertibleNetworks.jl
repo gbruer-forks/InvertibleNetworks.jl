@@ -76,6 +76,7 @@ include("conditional_layers/conditional_layer_correlation.jl")
 include("networks/invertible_network_conditional_glow.jl")
 include("networks/invertible_network_conditional_hint.jl")
 include("networks/invertible_network_conditional_hint_multiscale.jl")
+include("networks/invertible_network_conditional_correlation.jl")
 
 include("networks/summarized_net.jl")
 
