@@ -75,7 +75,7 @@ end
 @Flux.functor NetworkConditionalGlow
 
 # Constructor
-function NetworkConditionalGlow(n_in, n_cond, n_hidden, L, K; freeze_conv=false,  split_scales=false,  rb_activation::ActivationFunction=ReLUlayer(), k1=3, k2=1, p1=1, p2=0, s1=1, s2=1, ndims=2, squeezer::Squeezer=ShuffleLayer(), activation::ActivationFunction=SigmoidLayer())
+function NetworkConditionalGlow(n_in, n_cond, n_hidden, L, K; freeze_conv=false,  split_scales=false,  rb_activation::ActivationFunction=SoftplusLayer(), k1=3, k2=1, p1=1, p2=0, s1=1, s2=1, ndims=2, squeezer::Squeezer=ShuffleLayer(), activation::ActivationFunction=SigmoidLayer())
     AN = Array{ActNorm}(undef, L, K)    # activation normalization
     AN_C = ActNorm(n_cond; logdet=false)    # activation normalization for condition
     CL = Array{ConditionalLayerGlow}(undef, L, K)  # coupling layers w/ 1x1 convolution and residual block
@@ -108,15 +108,15 @@ function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, G::NetworkCondi
     G.split_scales && (Z_save = array_of_array(X, G.L-1))
     orig_shape = size(X)
 
-    C = G.AN_C.forward(C)
+    C = forward(C, G.AN_C)
 
     logdet = 0
     for i=1:G.L
         (G.split_scales) && (X = G.squeezer.forward(X))
         (G.split_scales) && (C = G.squeezer.forward(C))
-        for j=1:G.K            
-            X, logdet1 = G.AN[i, j].forward(X)
-            X, logdet2 = G.CL[i, j].forward(X, C)
+        for j=1:G.K
+            X, logdet1 = forward(X, G.AN[i, j])
+            X, logdet2 = forward(X, C, G.CL[i, j])
             logdet += (logdet1 + logdet2)
         end
         if G.split_scales && i < G.L    # don't split after last iteration
@@ -172,7 +172,6 @@ function backward(ΔX::AbstractArray{T, N}, X::AbstractArray{T, N}, C::AbstractA
             ΔC = G.squeezer.inverse(ΔC) 
             X = G.squeezer.inverse(X)
             ΔX = G.squeezer.inverse(ΔX)
-
         end
     end
 

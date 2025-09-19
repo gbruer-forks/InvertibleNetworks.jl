@@ -60,7 +60,7 @@ end
 function forward(X::AbstractArray{T, N}, AN::ActNorm; logdet=nothing) where {T, N}
     isnothing(logdet) ? logdet = (AN.logdet && ~AN.is_reversed) : logdet = logdet
     inds = [i!=(N-1) ? 1 : Colon() for i=1:N]
-    dims = collect(1:N-1); dims[end] +=1
+    dims = tuple((1:(N-2))..., N)
 
     # Initialize during first pass such that
     # output has zero mean and unit variance

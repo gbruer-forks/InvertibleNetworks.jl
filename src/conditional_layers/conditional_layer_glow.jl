@@ -59,7 +59,7 @@ or
  See also: [`Conv1x1`](@ref), [`ResidualBlock`](@ref), [`get_params`](@ref), [`clear_grad!`](@ref)
 """
 struct ConditionalLayerGlow <: NeuralNetLayer
-    C::Conv1x1
+    C::Union{Conv1x1,Conv1x1NoMutate}
     RB::ResidualBlock
     logdet::Bool
     activation::ActivationFunction
@@ -68,7 +68,7 @@ end
 @Flux.functor ConditionalLayerGlow
 
 # Constructor from 1x1 convolution and residual block
-function ConditionalLayerGlow(C::Conv1x1, RB::ResidualBlock; logdet=false, activation::ActivationFunction=SigmoidLayer())
+function ConditionalLayerGlow(C::Union{Conv1x1,Conv1x1NoMutate}, RB::ResidualBlock; logdet=false, activation::ActivationFunction=SigmoidLayer())
     RB.fan == false && throw("Set ResidualBlock.fan == true")
     return ConditionalLayerGlow(C, RB, logdet, activation)
 end
@@ -96,7 +96,7 @@ ConditionalLayerGlow3D(args...;kw...) = ConditionalLayerGlow(args...; kw..., ndi
 # Forward pass: Input X, Output Y
 function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalLayerGlow) where {T,N}
 
-    X_ = L.C.forward(X)
+    X_ = forward(X, L.C)
     X1, X2 = tensor_split(X_)
     if length(X1) == 0
         X1, X2 = X2, X1
@@ -105,7 +105,7 @@ function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalL
     Y2 = copy(X2)
 
     # Cat conditioning variable C into network input
-    logS_T = L.RB.forward(tensor_cat(X2,C))
+    logS_T = forward(tensor_cat(X2,C), L.RB)
     logS, log_T = tensor_split(logS_T)
 
     Sm = L.activation.forward(logS)
@@ -126,7 +126,7 @@ function inverse(Y::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalL
     end
 
     X2 = copy(Y2)
-    logS_T = L.RB.forward(tensor_cat(X2,C))
+    logS_T = forward(tensor_cat(X2,C), L.RB)
     logS, log_T = tensor_split(logS_T)
 
     Sm = L.activation.forward(logS)
@@ -134,7 +134,7 @@ function inverse(Y::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalL
     X1 = (Y1 - Tm) ./ (Sm .+ eps(T)) # add epsilon to avoid division by 0
 
     X_ = tensor_cat(X1, X2)
-    X = L.C.inverse(X_)
+    X = inverse(X_, L.C)
 
     save == true ? (return X, X1, X2, logS, Sm) : (return X)
 end
@@ -159,12 +159,14 @@ function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, C::AbstractA
     end
 
     # Backpropagate RB
-    ΔX2_ΔC = L.RB.backward(tensor_cat(apply_backward(L.activation, ΔS, logS, S), ΔT), (tensor_cat(X2, C)))
+    ΔlogS = apply_backward(L.activation, ΔS, logS, S)
+    ΔlogS_T = tensor_cat(ΔlogS, ΔT)
+    ΔX2_ΔC = backward(ΔlogS_T, tensor_cat(X2, C), L.RB)
     ΔX2, ΔC = tensor_split(ΔX2_ΔC; split_index=size(ΔY2)[N-1])
     ΔX2 += ΔY2
 
     # Backpropagate 1x1 conv
-    ΔX = L.C.inverse((tensor_cat(ΔX1, ΔX2), tensor_cat(X1, X2)))[1]
+    ΔX = inverse((tensor_cat(ΔX1, ΔX2), tensor_cat(X1, X2)), L.C)[1]
 
     return ΔX, X, ΔC
 end

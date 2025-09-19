@@ -22,6 +22,7 @@ basics = ["test_utils/test_objectives.jl",
 
           # Layers
 layers = ["test_layers/test_residual_block.jl",
+          "test_layers/test_residual_block2.jl",
           "test_layers/test_flux_block.jl",
           "test_layers/test_resnet.jl",
           "test_layers/test_layer_conv1x1.jl",
@@ -30,6 +31,7 @@ layers = ["test_layers/test_residual_block.jl",
           "test_layers/test_coupling_layer_glow.jl",
           "test_layers/test_coupling_layer_hint.jl",
           "test_layers/test_conditional_layer_glow.jl",
+          "test_layers/test_conditional_layer_glow2.jl",
           "test_layers/test_conditional_layer_hint.jl",
           "test_layers/test_conditional_res_block.jl",
           "test_layers/test_hyperbolic_layer.jl",
@@ -46,6 +48,7 @@ networks = ["test_networks/test_unrolled_loop.jl",
             "test_networks/test_multiscale_conditional_hint_network.jl",
             "test_networks/test_conditional_hint_network.jl",
             "test_networks/test_conditional_glow_network.jl",
+            "test_networks/test_conditional_glow_network2.jl",
             "test_networks/test_conditional_correlation_network.jl"]
 
 
