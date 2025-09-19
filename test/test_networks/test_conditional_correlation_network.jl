@@ -240,7 +240,7 @@ name = "(subnetworks = ConstantLayer; prenetworks = Conv1x1NoMutate)"
     L = 1
     out_chan = split_num
     println("Testing $name")
-    prenetwork_generator = in_shape -> Conv1x1NoMutate(in_shape[end])
+    prenetwork_generator = in_shape -> Conv1x1NoMutate(in_shape[end]; logdet=true)
     G = NetworkConditionalCorrelation(in_shape, cond_shape, L, K;
         prenetwork_generator,
     )
@@ -263,7 +263,7 @@ name = "(subnetworks = ConstantLayer; prenetworks = Conv1x1)"
     L = 1
     out_chan = split_num
     println("Testing $name")
-    prenetwork_generator = in_shape -> Conv1x1(in_shape[end])
+    prenetwork_generator = in_shape -> Conv1x1(in_shape[end]; logdet=true)
     G = NetworkConditionalCorrelation(in_shape, cond_shape, L, K;
         prenetwork_generator,
     )
@@ -329,7 +329,7 @@ name = "(subnetworks = ResBlock; prenetworks = Conv1x1NoMutate)"
         n_hidden = 4
         ResidualBlock(in_shape[end], n_hidden; n_out=2*out_shape[end], kwargs..., fan=true)
     end
-    prenetwork_generator = in_shape -> Conv1x1NoMutate(in_shape[end])
+    prenetwork_generator = in_shape -> Conv1x1NoMutate(in_shape[end]; logdet=true)
     G = NetworkConditionalCorrelation(in_shape, cond_shape, L, K;
         prenetwork_generator,
         subnetwork_generator,
@@ -439,7 +439,7 @@ name = "(state_network=ActNorm; cond_network=ActNorm; prenetwork=Conv1x1; subnet
     state_initial_network_generator = in_shape -> ActNorm(in_shape[end]; logdet=true)
     state_middle_network_generator = in_shape -> ActNorm(in_shape[end]; logdet=true)
     state_final_network_generator = in_shape -> ActNorm(in_shape[end]; logdet=true)
-    prenetwork_generator = in_shape -> Conv1x1NoMutate(in_shape[end])
+    prenetwork_generator = in_shape -> Conv1x1NoMutate(in_shape[end]; logdet=true)
     G = NetworkConditionalCorrelation(in_shape, cond_shape, L, K;
         cond_network_generator,
         state_initial_network_generator,

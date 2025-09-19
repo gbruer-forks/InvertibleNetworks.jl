@@ -47,9 +47,10 @@ end
 # Forward pass: Input X, Output Y
 function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalLayerCorrelation) where {T,N}
     if !isnothing(L.prenetwork)
-        X0 = forward(X, L.prenetwork)
+        X0, logdet = forward(X, L.prenetwork)
     else
         X0 = X
+        logdet = T(0)
     end
 
     X1, X2 = tensor_split(X0)
@@ -89,7 +90,7 @@ function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalL
 
     Y = tensor_cat(Y1, Y2)
 
-    L.logdet == true ? (return Y, scale_logdet_forward(Sm)) : (return Y)
+    L.logdet == true ? (return Y, logdet + scale_logdet_forward(Sm)) : (return Y)
 end
 
 # Inverse pass: Input Y, Output X
@@ -125,9 +126,10 @@ function inverse(Y::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalL
 
     X0 = tensor_cat(X1, X2)
     if !isnothing(L.prenetwork)
-        X = inverse(X0, L.prenetwork)
+        X, logdet = inverse(X0, L.prenetwork)
     else
         X = X0
+        logdet = T(0)
     end
 
     save == true ? (return X, X1, X2, w, w1, w2, Sm, Tm) : (return X)

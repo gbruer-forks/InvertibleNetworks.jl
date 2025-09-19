@@ -313,8 +313,8 @@ end
     name = "Conv1x1NoMutate"
     @testset verbose=true "$name" begin
         println("Testing $name")
-        layer_conv1x1 = Conv1x1(n_channel)
-        layer_conv1x1_nomutate = Conv1x1NoMutate(n_channel)
+        layer_conv1x1 = Conv1x1(n_channel; logdet=true)
+        layer_conv1x1_nomutate = Conv1x1NoMutate(n_channel; logdet=true)
 
         P = deepcopy(get_params(layer_conv1x1))
         if TT != Float32
@@ -325,8 +325,8 @@ end
         end
         set_params!(layer_conv1x1_nomutate, deepcopy(P))
 
-        Y = forward(X, layer_conv1x1)
-        Y_f = forward(X, layer_conv1x1_nomutate)
+        Y, logdet = forward(X, layer_conv1x1)
+        Y_f, logdet = forward(X, layer_conv1x1_nomutate)
 
         @test norm(Y - Y_f) ./ norm(Y) < 2f-6
 
@@ -336,7 +336,8 @@ end
 
         forward_test = function (X, P)
             set_params!(layer_conv1x1_nomutate, P)
-            forward(X, layer_conv1x1_nomutate)
+            Y, logdet = forward(X, layer_conv1x1_nomutate)
+            Y
         end
         Y_f, back = Flux.pullback(forward_test, deepcopy(X), deepcopy(P))
 
@@ -353,7 +354,7 @@ end
     name = "ConditionalLayerCorrelation with Conv1x1NoMutate"
     @testset verbose=true "$name" begin
         println("Testing $name")
-        layer_conv1x1 = Conv1x1NoMutate(n_channel)
+        layer_conv1x1 = Conv1x1NoMutate(n_channel; logdet=true)
         layer_constant = LayerConstant(glorot_uniform(nx, ny, split_num))
         L = ConditionalLayerCorrelation(layer_conv1x1, layer_constant; logdet=true)
 
@@ -384,7 +385,7 @@ end
     name = "ConditionalLayerCorrelation with Conv1x1"
     @testset verbose=true "$name" begin
         println("Testing $name")
-        layer_conv1x1 = Conv1x1(n_channel)
+        layer_conv1x1 = Conv1x1(n_channel; logdet=true)
         layer_constant = LayerConstant(glorot_uniform(nx, ny, split_num))
         L = ConditionalLayerCorrelation(layer_conv1x1, layer_constant; logdet=true)
 
@@ -461,7 +462,7 @@ end
         p2 = 1
         fan = true
         n_hidden = 4
-        layer_conv1x1 = Conv1x1NoMutate(n_channel)
+        layer_conv1x1 = Conv1x1NoMutate(n_channel; logdet=true)
         activation = SoftplusLayer()
         final_activation = IdentityActivation()
         layer_resblock = ResidualBlock(in_split+n_channel_cond, n_hidden; n_out=out_chan, k1, k2, p1, p2, fan, activation, final_activation)
