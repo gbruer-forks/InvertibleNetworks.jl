@@ -1,5 +1,7 @@
 export ConditionalLayerCorrelation
 
+using Flux: get_device
+
 struct ConditionalLayerCorrelation <: NeuralNetLayer
     prenetwork::Union{Nothing, Conv1x1, Conv1x1NoMutate}
     subnetwork::Union{ResidualBlock, LayerConstant}
@@ -75,7 +77,7 @@ function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalL
     Nb = size(C, N)
     if isnothing(L.C_weights.data)
         L.C_weights.data = glorot_uniform(prod(size(C)[1:(N-1)]))
-        L.C_weights.data = reshape(L.C_weights.data, 1, size(L.C_weights.data)...)
+        L.C_weights.data = reshape(L.C_weights.data, 1, size(L.C_weights.data)...) |> get_device(C)
     end
     C_scalar = L.C_weights.data * reshape(C, :, Nb)
     C_scalar_broadcast = reshape(C_scalar, ones(Int, N-2)..., :, Nb)
