@@ -76,7 +76,12 @@ function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalL
     # Get condition to use for shift. Need to be able to multiply it component-wise with X.
     Nb = size(C, N)
     if isnothing(L.C_weights.data)
-        L.C_weights.data = glorot_uniform(prod(size(C)[1:(N-1)]))
+        nc = prod(size(C)[1:(N-1)])
+        if nc == 1
+            L.C_weights.data = ones(T, 1)
+        else
+            L.C_weights.data = glorot_uniform(nc)
+        end
         L.C_weights.data = reshape(L.C_weights.data, 1, size(L.C_weights.data)...) |> get_device(C)
     end
     C_scalar = L.C_weights.data * reshape(C, :, Nb)
@@ -172,7 +177,11 @@ function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, C::AbstractA
     ΔC_vector = L.C_weights.data' * ΔC_scalar
     ΔC_weights = ΔC_scalar * reshape(C, :, Nb)'
 
-    isnothing(L.C_weights.grad) ? (L.C_weights.grad = ΔC_weights) : (L.C_weights.grad += ΔC_weights)
+
+    nc = prod(size(C)[1:(N-1)])
+    if nc != 1
+        isnothing(L.C_weights.grad) ? (L.C_weights.grad = ΔC_weights) : (L.C_weights.grad += ΔC_weights)
+    end
 
     # Join scale and shift parts.
     if size(w)[1:N-1] == size(X1)[1:N-1]
