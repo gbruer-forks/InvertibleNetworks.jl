@@ -8,7 +8,7 @@ export Sigmoid, SigmoidInv, SigmoidGrad
 export GaLU, GaLUgrad
 export ExpClamp, ExpClampInv, ExpClampGrad
 export ReLUlayer, LeakyReLUlayer, SigmoidLayer, Sigmoid2Layer, GaLUlayer, ExpClampLayer
-export IdentityActivation, SoftplusLayer, TanhLayer, CoshLayer, SinhLayer, DampedCoshLayer
+export IdentityActivation, SoftplusLayer, TanhLayer, CoshLayer, SinhLayer, DampedCoshLayer, DampedSinhLayer
 export apply_backward
 
 

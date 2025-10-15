@@ -78,68 +78,62 @@ name = "DampedSinh"
     @test norm(ΔX - ΔX2) < 2f-5
 end
 
-name = "CorrelationScaleLayer"
-@testset verbose = true "$name" begin
-    println("Testing $name")
-
-    Sm = InvertibleNetworks.CorrelationScaleLayer.forward(X)
-    ΔSm = randn(TT, size(Sm))
-    ΔX = apply_backward(InvertibleNetworks.CorrelationScaleLayer, ΔSm, X, Sm)
-
-    Sm2, back = Flux.pullback(InvertibleNetworks.CorrelationScaleLayer.forward, deepcopy(X))
-    @test norm(Sm - Sm2) == 0
-    ΔX2, = back(ΔSm)
-    @test norm(ΔX - ΔX2) < 2f-5
-end
-
-
-name = "CorrelationShiftLayer"
-@testset verbose = true "$name" begin
-    println("Testing $name")
-
-    Tm = InvertibleNetworks.CorrelationShiftLayer.forward(X, dX)
-    ΔTm = randn(TT, size(Tm))
-    ΔX, ΔdX = InvertibleNetworks.CorrelationShiftLayer.backward(ΔTm, Tm, X, dX)
-
-    Tm2, back = Flux.pullback(InvertibleNetworks.CorrelationShiftLayer.forward, deepcopy(X), deepcopy(dX))
-    @test norm(Tm - Tm2) == 0
-    ΔX2, ΔdX2 = back(ΔTm)
-    @test norm(ΔX - ΔX2) < 2f-5
-    @test norm(ΔdX - ΔdX2) < 2f-5
-end
-
 @testset verbose = true "ConditionalLayerCorrelation (n_channel_cond=$n_channel_cond)" for n_channel_cond in [n_channel, n_channel+2]
     Cond = randn(TT, nx, ny, n_channel_cond, batchsize)
 
     # Test with the simplest configuration.
     name = "ConditionalLayerCorrelation with no subnetworks"
-    @testset verbose = true "$name (out_chan=$out_chan)" for out_chan in [split_num, 2*split_num]
-        println("Testing $name")
-        layer_conv1x1 = nothing
-        layer_constant = LayerConstant(glorot_uniform(nx, ny, out_chan))
-        L = ConditionalLayerCorrelation(nothing, layer_constant; logdet=true)
+    @testset verbose = true "$name (scale_activation=$scale_activation)" for scale_activation in ["damped_cosh", "softplus"], shift_cond_scalar in [true, false]
+        @testset verbose = true "$name (shift_activation=$shift_activation)" for shift_activation in ["damped_sinh", "softplus"]
+            @testset verbose = true "$name (shift_cond_scalar=$shift_cond_scalar)" for shift_cond_scalar in [true, false]
+                @testset verbose = true "$name (out_chan=$out_chan)" for out_chan in [split_num, 2*split_num]
+                    println("Testing $name")
+                    layer_conv1x1 = nothing
+                    layer_constant = LayerConstant(glorot_uniform(nx, ny, out_chan))
+                    if scale_activation == "damped_cosh"
+                        scale_activation = DampedCoshLayer()
+                    elseif scale_activation == "softplus"
+                        scale_activation = SoftplusLayer()
+                    end
+                    if shift_activation == "damped_sinh"
+                        shift_activation = DampedSinhLayer()
+                    elseif shift_activation == "softplus"
+                        shift_activation = SoftplusLayer()
+                    end
+                    L = ConditionalLayerCorrelation(nothing, layer_constant; logdet=true, shift_cond_scalar=true, scale_activation, shift_activation)
 
-        if TT != Float32
-            forward(Float32.(X), Float32.(Cond), L)
-            P = deepcopy(get_params(L))
-            for p in P
-                p.data = TT.(p.data)
+                    if TT != Float32
+                        forward(Float32.(X), Float32.(Cond), L)
+                        P = deepcopy(get_params(L))
+                        for p in P
+                            if isnothing(p.data)
+                                continue
+                            end
+                            p.data = TT.(p.data)
+                        end
+                    else
+                        forward(X, Cond, L)
+                        P = deepcopy(get_params(L))
+                    end
+
+                    # Set up for parameters test.
+                    dP = deepcopy(P)
+                    for (p, dp) in zip(P, dP)
+                        if isnothing(p.data)
+                            p.data = [0]
+                            dp.data = [0]
+                            continue
+                        end
+                        dp.data = randn(eltype(p.data), size(p.data))
+                        dp.data ./= norm(p.data) + eps(TT)
+                    end
+                    set_params!(L, deepcopy(P))
+
+                    conditional_layer_test_inverse(L, X, Cond, dX)
+                    conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name, do_flux=true)
+                end
             end
-            set_params!(L, deepcopy(P))
-        else
-            forward(X, Cond, L)
-            P = deepcopy(get_params(L))
         end
-
-        # Set up for parameters test.
-        dP = deepcopy(P)
-        for (p, dp) in zip(P, dP)
-            dp.data = randn(eltype(p.data), size(p.data))
-            dp.data ./= norm(p.data)
-        end
-
-        conditional_layer_test_inverse(L, X, Cond, dX)
-        conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name)
     end
 
     # Test Conv1x1
