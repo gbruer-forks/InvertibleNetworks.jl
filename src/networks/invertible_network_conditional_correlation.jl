@@ -24,6 +24,7 @@ function NetworkConditionalCorrelation(in_shape, cond_shape, L, K;
     prenetwork_generator=nothing,
     subnetwork_generator=nothing,
     squeezer=nothing,
+    coupling_layer_params=(;),
 )
     if isnothing(state_initial_network_generator)
         state_initial_network_generator = in_shape -> nothing
@@ -91,7 +92,7 @@ function NetworkConditionalCorrelation(in_shape, cond_shape, L, K;
             prenetwork = prenetwork_generator(in_shape)
             sub_shape = tuple(in_shape[1:end-1]..., in_split+cond_shape[end])
             subnetwork = subnetwork_generator(sub_shape, out_shape)
-            CL[i, j] = ConditionalLayerCorrelation(prenetwork, subnetwork, logdet=true)
+            CL[i, j] = ConditionalLayerCorrelation(prenetwork, subnetwork; coupling_layer_params..., logdet=true)
         end
         (i < L && split_scales) && (in_shape[end] = Int64(in_shape[end]/2)) # split
     end
