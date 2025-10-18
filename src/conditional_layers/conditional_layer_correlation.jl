@@ -5,28 +5,30 @@ using Flux: get_device
 struct ConditionalLayerCorrelation <: NeuralNetLayer
     prenetwork::Union{Nothing, Conv1x1, Conv1x1NoMutate}
     subnetwork::Union{ResidualBlock, LayerConstant}
-    C_weights::Union{Parameter, Nothing}
-    scale_activation::ActivationFunction
-    shift_activation::ActivationFunction
-    shift_cond_scalar::Bool
+    invertible_operator::Union{AffineCouplingOperator, RQSpline1Operator}
     logdet::Bool
 end
 
 @Flux.functor ConditionalLayerCorrelation
 
-# Constructor from 1x1 convolution and residual block
-function ConditionalLayerCorrelation(prenetwork, subnetwork::ResidualBlock; logdet=false, scale_activation = DampedCoshLayer(), shift_activation=DampedSinhLayer(), shift_cond_scalar=true)
+function ConditionalLayerCorrelation(prenetwork, subnetwork::ResidualBlock; logdet=false, kwargs...)
     subnetwork.fan == false && throw("Set ResidualBlock.fan == true")
-    return ConditionalLayerCorrelation(prenetwork, subnetwork, logdet; scale_activation, shift_activation, shift_cond_scalar)
+    return ConditionalLayerCorrelation(prenetwork, subnetwork, logdet; kwargs...)
 end
 
-function ConditionalLayerCorrelation(prenetwork, subnetwork, logdet; scale_activation = DampedCoshLayer(), shift_activation=DampedSinhLayer(), shift_cond_scalar=true)
+function ConditionalLayerCorrelation(prenetwork, subnetwork; logdet=false, kwargs...)
+    return ConditionalLayerCorrelation(prenetwork, subnetwork, logdet; kwargs...)
+end
+
+function ConditionalLayerCorrelation(prenetwork, subnetwork, invertible_operator; logdet=true)
+    return ConditionalLayerCorrelation(prenetwork, subnetwork, invertible_operator, logdet)
+end
+
+# For backwards compatibility.
+function ConditionalLayerCorrelation(prenetwork, subnetwork, logdet::Bool; scale_activation = DampedCoshLayer(), shift_activation=DampedSinhLayer(), shift_cond_scalar=true)
     C_weights = shift_cond_scalar ? Parameter(nothing) : nothing
-    return ConditionalLayerCorrelation(prenetwork, subnetwork, C_weights, scale_activation, shift_activation, shift_cond_scalar, logdet)
-end
-
-function ConditionalLayerCorrelation(prenetwork, subnetwork; logdet=false, scale_activation = DampedCoshLayer(), shift_activation=DampedSinhLayer(), shift_cond_scalar=true)
-    return ConditionalLayerCorrelation(prenetwork, subnetwork, logdet; scale_activation, shift_activation, shift_cond_scalar)
+    invertible_operator = AffineCouplingOperator(C_weights, shift_cond_scalar, scale_activation, shift_activation)
+    return ConditionalLayerCorrelation(prenetwork, subnetwork, invertible_operator, logdet)
 end
 
 function ConditionalLayerCorrelation_splitdims(n_in)
@@ -41,10 +43,10 @@ end
 # Forward pass: Input X, Output Y
 function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalLayerCorrelation) where {T,N}
     if !isnothing(L.prenetwork)
-        X0, logdet = forward(X, L.prenetwork)
+        X0, logdet_pre = forward(X, L.prenetwork)
     else
         X0 = X
-        logdet = T(0)
+        logdet_pre = T(0)
     end
 
     X1, X2 = tensor_split(X0)
@@ -58,47 +60,12 @@ function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalL
     C_X2 = tensor_cat(X2, C)
     w = forward(C_X2, L.subnetwork)
 
-    # Split subnetwork output to get scale and shift parts.
-    if size(w)[1:N-1] == size(X1)[1:N-1]
-        w1 = w
-        w2 = w
-    else
-        w1, w2 = tensor_split(w)
-    end
-
-    # Apply correlation decoupling.
-
-    Sm = L.scale_activation.forward(w1)
-    Tm_1 = L.shift_activation.forward(w2)
-    if L.shift_cond_scalar
-        # Get condition to use for shift. Need to be able to multiply it component-wise with X.
-        Nb = size(C, N)
-        if isnothing(L.C_weights.data)
-            nc = prod(size(C_X2)[1:(N-1)])
-            if nc == 1
-                L.C_weights.data = ones(T, size(C)[1:end-1])
-            else
-                L.C_weights.data = glorot_uniform(nc)
-            end
-            L.C_weights.data = reshape(L.C_weights.data, 1, size(L.C_weights.data)...) |> get_device(C)
-        end
-        if prod(size(C_X2)[1:(N-1)]) == 1
-            C_X2_scalar = reshape(C_X2, :, Nb)
-        else
-            # Get condition to use for shift. Need to be able to multiply it component-wise with X.
-            C_X2_scalar = L.C_weights.data * reshape(C_X2, :, Nb)
-        end
-        C_X2_scalar_broadcast = reshape(C_X2_scalar, ones(Int, N-2)..., :, Nb)
-        Tm = -Tm_1 .* C_X2_scalar_broadcast
-    else
-        Tm = Tm_1
-    end
-
-    Y1 = Sm .* X1 + Tm
+    # Invertible operator uses w to invertibly transform X1.
+    Y1, logdet = forward(X1, C_X2, w, L.invertible_operator)
 
     Y = tensor_cat(Y1, Y2)
 
-    L.logdet == true ? (return Y, logdet + scale_logdet_forward(Sm)) : (return Y)
+    L.logdet == true ? (return Y, logdet_pre + logdet / size(X)[end]) : (return Y)
 end
 
 # Inverse pass: Input Y, Output X
@@ -115,31 +82,8 @@ function inverse(Y::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalL
     C_X2 = tensor_cat(X2, C)
     w = forward(C_X2, L.subnetwork)
 
-    # Split subnetwork output to get scale and shift parts.
-    if size(w)[1:N-1] == size(Y1)[1:N-1]
-        w1 = w
-        w2 = w
-    else
-        w1, w2 = tensor_split(w)
-    end
-
-    # Invert correlation decoupling.
-    Sm = L.scale_activation.forward(w1)
-    Tm_1 = L.shift_activation.forward(w2)
-    if L.shift_cond_scalar
-        Nb = size(C, N)
-        if prod(size(C_X2)[1:(N-1)]) == 1
-            C_X2_scalar = reshape(C_X2, :, Nb)
-        else
-            # Get condition to use for shift. Need to be able to multiply it component-wise with X.
-            C_X2_scalar = L.C_weights.data * reshape(C_X2, :, Nb)
-        end
-        C_X2_scalar_broadcast = reshape(C_X2_scalar, ones(Int, N-2)..., :, Nb)
-        Tm = -Tm_1 .* C_X2_scalar_broadcast
-    else
-        Tm = Tm_1
-    end
-    X1 = (Y1 - Tm) ./ Sm
+    # Invertible operator uses w to invertibly get X1.
+    X1, saved = inverse(Y1, C_X2, w, L.invertible_operator)
 
     X0 = tensor_cat(X1, X2)
     if !isnothing(L.prenetwork)
@@ -149,76 +93,30 @@ function inverse(Y::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalL
         logdet = T(0)
     end
 
-    save == true ? (return X, X1, X2, w, w1, w2, Sm, Tm_1, Tm) : (return X)
+    save == true ? (return X, X1, X2, w, saved) : (return X)
 end
 
 # Backward pass: Input (ΔY, Y), Output (ΔX, X)
-function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalLayerCorrelation;) where {T,N}
-
+function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalLayerCorrelation) where {T,N}
     # Recompute forward state
-    X, X1, X2, w, w1, w2, Sm, Tm_1, Tm = inverse(Y, C, L; save=true)
+    X, X1, X2, w, saved = inverse(Y, C, L; save=true)
 
     # Backpropagate coupling.
     ΔY1, ΔY2 = tensor_split(ΔY)
     if length(ΔY1) == 0
         ΔY1, ΔY2 = ΔY2, ΔY1
     end
-
-    ΔTm = copy(ΔY1)
-
-    ΔSm = ΔY1 .* X1
-    if L.logdet
-        ΔSm -= scale_logdet_backward(Sm)
-    end
-    ΔX1 = ΔY1 .* Sm
-
     C_X2 = tensor_cat(X2, C)
 
-    # Backpropagate activations.
-    if L.shift_cond_scalar
-        Nb = size(C, N)
-        C_X2_vector = reshape(C_X2, :, Nb)
-        if prod(size(C_X2)[1:(N-1)]) == 1
-            C_X2_scalar = C_X2_vector
-        else
-            # Get condition to use for shift. Need to be able to multiply it component-wise with X.
-            C_X2_scalar = L.C_weights.data * C_X2_vector
-        end
-        C_X2_scalar_broadcast = reshape(C_X2_scalar, (1 for i in 1:N-2)..., :, Nb)
+    # Invertible operator applies adjoint Jacobian of Y1.
 
-        ΔC_X2_scalar_broadcast = -ΔTm .* Tm_1
-        ΔTm_1 = -ΔTm .* C_X2_scalar_broadcast
-
-        ΔC_X2_scalar = sum(reshape(ΔC_X2_scalar_broadcast, :, Nb); dims=1)
-
-        if prod(size(C_X2)[1:(N-1)]) == 1
-            ΔC_X2_vector = ΔC_X2_scalar
-            ΔC_weights = zero(L.C_weights.data)
-        else
-            ΔC_weights = ΔC_X2_scalar * C_X2_vector'
-            ΔC_X2_vector = L.C_weights.data' * ΔC_X2_scalar
-        end
-        isnothing(L.C_weights.grad) ? (L.C_weights.grad = ΔC_weights) : (L.C_weights.grad += ΔC_weights)
-        ΔC_X2 = reshape(ΔC_X2_vector, size(C_X2))
-    else
-        ΔTm_1 = ΔTm
-    end
-    Δw1 = apply_backward(L.scale_activation, ΔSm, w1, Sm)
-    Δw2 = apply_backward(L.shift_activation, ΔTm_1, w2, Tm_1)
-
-    # Join scale and shift parts.
-    if size(w)[1:N-1] == size(X1)[1:N-1]
-        Δw = Δw1 .+ Δw2
-    else
-        Δw = tensor_cat(Δw1, Δw2)
-    end
+    Δlogdet = L.logdet ? T(1) / size(Y)[end] : T(0)
+    ΔX1, ΔC_X2_invop, Δw = backward(ΔY1, Δlogdet, X1, C_X2, w, L.invertible_operator, saved)
 
     # Backpropagate subnetwork.
-    if L.shift_cond_scalar
-        ΔC_X2 = ΔC_X2 + backward(Δw, C_X2, L.subnetwork)
-    else
-        ΔC_X2 = backward(Δw, C_X2, L.subnetwork)
-    end
+    ΔC_X2_subnet = backward(Δw, C_X2, L.subnetwork)
+    # @show size(X) size(X1) size(X2) size(C) size(C_X2) size(ΔC_X2_invop) size(ΔC_X2_subnet)
+    ΔC_X2 = ΔC_X2_invop + ΔC_X2_subnet
 
     ΔX2, ΔC = tensor_split(ΔC_X2; split_index=size(ΔY2)[N-1])
     ΔX2 = ΔX2 + ΔY2
@@ -235,5 +133,3 @@ function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, C::AbstractA
     return ΔX, X, ΔC
 end
 
-scale_logdet_forward(S) = sum(log.(abs.(S))) / size(S)[end]
-scale_logdet_backward(S) = 1f0./ S / size(S)[end]

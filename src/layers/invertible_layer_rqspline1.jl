@@ -56,11 +56,17 @@ function forward(X::AbstractArray{T, N}, x0, y0, d, L::RQSpline1_func{LD,C}) whe
         x0 = Sigmoid(x0; low=T(0), high=T(1))
         y0 = Sigmoid(y0; low=T(0), high=T(1))
         d = ExpClamp(d; clamp=T(3))
+        # d = exp.(T(3) * T(0.636) * atan.(d))
     end
     if LD
+        # println()
+        # println()
+        # # @show size(X) size(x0) size(y0) size(d)
+        # println()
+        # println()
         dy_dxs_ys = spline_derivative.(X, x0, y0, d)
         Y = reshape(getindex.(dy_dxs_ys, 2), size(X))
-        logdet = sum(log.(first.(dy_dxs_ys))) ./ size(X, N)
+        logdet = sum(log.(first.(dy_dxs_ys))) # ./ size(X, N)
         return Y, logdet
     end
     Y = spline.(X, x0, y0, d)
@@ -78,6 +84,15 @@ function inverse(Y::AbstractArray{T, N}, x0, y0, d, L::RQSpline1_func{LD,C}) whe
 end
 
 function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, x0, y0, d, L::RQSpline1_func{LD,C}) where {T,N,LD,C}
+    if LD
+        Δlogdet = T(-1) / size(Y, N)
+    else
+        Δlogdet = T(0)
+    end
+    return backward(ΔY, Δlogdet, Y, x0, y0, d, L)
+end
+
+function backward(ΔY::AbstractArray{T, N}, Δlogdet::T, Y::AbstractArray{T, N}, x0, y0, d, L::RQSpline1_func{LD,C}) where {T,N,LD,C}
     if C
         x0_orig = x0
         y0_orig = y0
@@ -90,7 +105,6 @@ function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, x0, y0, d, L
     X = first.(X_dy_dx)
     dy_dx = getindex.(X_dy_dx, 2)
 
-    Δlogdet = T(-1) / size(Y, N)
     Δdy_dx = Δlogdet ./ dy_dx
     Δx_Δx0_Δy0_Δd = Broadcast.broadcasted(spline_adjoint, X, x0, y0, d, ΔY, Δdy_dx)
     Δx = getindex.(Δx_Δx0_Δy0_Δd, 1)

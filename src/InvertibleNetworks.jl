@@ -50,6 +50,8 @@ include("utils/chainrules.jl")
 
 # Single network layers (invertible and non-invertible)
 include("conditional_layers/conditional_layer_residual_block.jl")
+include("conditional_layers/conditional_affine_operator.jl")
+include("conditional_layers/conditional_rqspline1_operator.jl")
 include("layers/layer_flux_block.jl")
 include("layers/layer_residual_block.jl")
 include("layers/layer_resnet.jl")

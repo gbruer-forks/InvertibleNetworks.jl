@@ -19,6 +19,7 @@ TT = Float64
 X = randn(TT, nx, ny, n_channel, batchsize)
 X0 = randn(TT, nx, ny, n_channel, batchsize)
 dX = X - X0
+Cond = randn(TT, nx, ny, n_channel, batchsize)
 
 # Test activation functions.
 name = "Cosh"
@@ -77,6 +78,50 @@ name = "DampedSinh"
     @test norm(ΔX - ΔX2) < 2f-5
 end
 
+function test_conditional_layer_correlation_full(L, X, Cond; do_flux=false, name="Conditional Layer Correlation")
+    if TT != Float32
+        forward(Float32.(X), Float32.(Cond), L)
+        P = deepcopy(get_params(L))
+        for p in P
+            if isnothing(p.data)
+                continue
+            end
+            p.data = TT.(p.data)
+        end
+    else
+        forward(X, Cond, L)
+        P = deepcopy(get_params(L))
+    end
+
+    # Set up for parameters test.
+    dP = deepcopy(P)
+    for (p, dp) in zip(P, dP)
+        if isnothing(p.data)
+            p.data = [0]
+            dp.data = [0]
+            continue
+        end
+        dp.data = randn(eltype(p.data), size(p.data))
+        dp.data ./= 1 + norm(p.data) + eps(TT)
+    end
+    set_params!(L, deepcopy(P))
+
+    conditional_layer_test_inverse(L, X, Cond, dX)
+    conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name, do_flux)
+end
+
+name = "ConditionalLayerCorrelation (subnetwork=RQSpline1)"
+@testset verbose = true "$name" begin
+    out_chan = split_num + size(Cond)[end-1]
+    @show split_num
+    layer_constant = LayerConstant(glorot_uniform(nx, ny, 6))
+    invertible_operator = RQSpline1Operator()
+    L = ConditionalLayerCorrelation(nothing, layer_constant, invertible_operator)
+    test_conditional_layer_correlation_full(L, X, Cond; name, do_flux=false)
+end
+
+error("done")
+
 @testset verbose = true "ConditionalLayerCorrelation (n_channel_cond=$n_channel_cond)" for n_channel_cond in [n_channel, n_channel+2]
     Random.seed!(4123)
     Cond = randn(TT, nx, ny, n_channel_cond, batchsize)
@@ -114,36 +159,7 @@ end
                             shift_activation = SoftplusLayer()
                         end
                         L = ConditionalLayerCorrelation(nothing, layer_constant; logdet=true, shift_cond_scalar, scale_activation, shift_activation)
-
-                        if TT != Float32
-                            forward(Float32.(X), Float32.(Cond), L)
-                            P = deepcopy(get_params(L))
-                            for p in P
-                                if isnothing(p.data)
-                                    continue
-                                end
-                                p.data = TT.(p.data)
-                            end
-                        else
-                            forward(X, Cond, L)
-                            P = deepcopy(get_params(L))
-                        end
-
-                        # Set up for parameters test.
-                        dP = deepcopy(P)
-                        for (p, dp) in zip(P, dP)
-                            if isnothing(p.data)
-                                p.data = [0]
-                                dp.data = [0]
-                                continue
-                            end
-                            dp.data = randn(eltype(p.data), size(p.data))
-                            dp.data ./= norm(p.data) + eps(TT)
-                        end
-                        set_params!(L, deepcopy(P))
-
-                        conditional_layer_test_inverse(L, X, Cond, dX)
-                        conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name, do_flux=true)
+                        test_conditional_layer_correlation_full(L, X, Cond; name, do_flux=true)
                     end
                 end
             end
@@ -199,28 +215,7 @@ end
         layer_conv1x1 = Conv1x1NoMutate(n_channel; logdet=true)
         layer_constant = LayerConstant(glorot_uniform(nx, ny, split_num))
         L = ConditionalLayerCorrelation(layer_conv1x1, layer_constant; logdet=true)
-
-        if TT != Float32
-            forward(Float32.(X), Float32.(Cond), L)
-            P = deepcopy(get_params(L))
-            for p in P
-                p.data = TT.(p.data)
-            end
-            set_params!(L, deepcopy(P))
-        else
-            forward(X, Cond, L)
-            P = deepcopy(get_params(L))
-        end
-
-        # Set up for parameters test.
-        dP = deepcopy(P)
-        for (p, dp) in zip(P, dP)
-            dp.data = randn(eltype(p.data), size(p.data))
-            dp.data ./= norm(p.data)
-        end
-
-        conditional_layer_test_inverse(L, X, Cond, dX)
-        conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name)
+        test_conditional_layer_correlation_full(L, X, Cond; name)
     end
 
     # Test with Conv1x1.
@@ -230,28 +225,7 @@ end
         layer_conv1x1 = Conv1x1(n_channel; logdet=true)
         layer_constant = LayerConstant(glorot_uniform(nx, ny, split_num))
         L = ConditionalLayerCorrelation(layer_conv1x1, layer_constant; logdet=true)
-
-        if TT != Float32
-            forward(Float32.(X), Float32.(Cond), L)
-            P = deepcopy(get_params(L))
-            for p in P
-                p.data = TT.(p.data)
-            end
-            set_params!(L, deepcopy(P))
-        else
-            forward(X, Cond, L)
-            P = deepcopy(get_params(L))
-        end
-
-        # Set up for parameters test.
-        dP = deepcopy(P)
-        for (p, dp) in zip(P, dP)
-            dp.data = randn(eltype(p.data), size(p.data))
-            dp.data ./= norm(p.data)
-        end
-
-        conditional_layer_test_inverse(L, X, Cond, dX)
-        conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name)
+        test_conditional_layer_correlation_full(L, X, Cond; name)
     end
 
     name = "ConditionalLayerCorrelation with ResidualBlock"
@@ -267,31 +241,7 @@ end
         final_activation = IdentityActivation()
         layer_resblock = ResidualBlock(in_split+n_channel_cond, n_hidden; n_out=out_chan, k1, k2, p1, p2, fan, activation, final_activation)
         L = ConditionalLayerCorrelation(nothing, layer_resblock; logdet=true)
-
-        if TT != Float32
-            forward(Float32.(X), Float32.(Cond), L)
-            P = deepcopy(get_params(L))
-            for p in P
-                p.data = TT.(p.data)
-            end
-            set_params!(L, deepcopy(P))
-        else
-            forward(X, Cond, L)
-            P = deepcopy(get_params(L))
-        end
-
-        # Set up for parameters test.
-        dP = deepcopy(P)
-        for (p, dp) in zip(P, dP)
-            dp.data = randn(eltype(p.data), size(p.data))
-            a = norm(p.data)
-            if a != 0
-                dp.data ./= a
-            end
-        end
-
-        conditional_layer_test_inverse(L, X, Cond, dX)
-        conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name)
+        test_conditional_layer_correlation_full(L, X, Cond; name, do_flux=true)
     end
 
 
@@ -309,30 +259,6 @@ end
         final_activation = IdentityActivation()
         layer_resblock = ResidualBlock(in_split+n_channel_cond, n_hidden; n_out=out_chan, k1, k2, p1, p2, fan, activation, final_activation)
         L = ConditionalLayerCorrelation(layer_conv1x1, layer_resblock; logdet=true)
-
-        if TT != Float32
-            forward(Float32.(X), Float32.(Cond), L)
-            P = deepcopy(get_params(L))
-            for p in P
-                p.data = TT.(p.data)
-            end
-            set_params!(L, deepcopy(P))
-        else
-            forward(X, Cond, L)
-            P = deepcopy(get_params(L))
-        end
-
-        # Set up for parameters test.
-        dP = deepcopy(P)
-        for (p, dp) in zip(P, dP)
-            dp.data = randn(eltype(p.data), size(p.data))
-            a = norm(p.data)
-            if a != 0
-                dp.data ./= a
-            end
-        end
-
-        conditional_layer_test_inverse(L, X, Cond, dX)
-        conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name)
+        test_conditional_layer_correlation_full(L, X, Cond; name)
     end
 end
