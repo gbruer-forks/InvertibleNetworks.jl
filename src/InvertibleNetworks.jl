@@ -42,6 +42,7 @@ include("utils/objective_functions.jl")
 include("utils/dimensionality_operations.jl")
 include("utils/activation_functions.jl")
 include("utils/test_distributions.jl")
+include("layers/invertible_layer_rqspline1.jl")
 include("utils/neuralnet.jl")
 include("utils/invertible_network_sequential.jl")
 # AD rules

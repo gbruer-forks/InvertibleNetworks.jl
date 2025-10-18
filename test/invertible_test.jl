@@ -10,9 +10,10 @@ function invertible_layer_test_inverse(L, X, dX)
 end
 
 function invertible_layer_test_gradient(L, P, dP, X, dX; name, do_flux=nothing, tol=1e-10)
-    loss = function (L, P, X; with_grad)
+    L_params = get_params(L)
+    loss = function (P, X; with_grad)
         if !isnothing(P)
-            set_params!(L, P)
+            set_params!(L_params, P)
         end
         Y, logdet = forward(X, L)
         f = log_likelihood(Y) - logdet
@@ -27,7 +28,7 @@ function invertible_layer_test_gradient(L, P, dP, X, dX; name, do_flux=nothing, 
     # Gradient test w.r.t. input X
     println("    $name: testing input")
     loss_test = function (X; with_grad=false)
-        return loss(L, nothing, X; with_grad)
+        return loss(nothing, X; with_grad)
     end
     f0, ΔX = loss_test(deepcopy(X); with_grad=true)
 
@@ -65,7 +66,7 @@ function invertible_layer_test_gradient(L, P, dP, X, dX; name, do_flux=nothing, 
     clear_grad!(L)
     clear_grad!(P)
     loss_test = function (P; with_grad=false)
-        return loss(L, P, X; with_grad)
+        return loss(P, X; with_grad)
     end
     f0, ΔX = loss_test(deepcopy(P); with_grad=true)
     ΔP = deepcopy(get_grads(L))
@@ -81,7 +82,7 @@ function invertible_layer_test_gradient(L, P, dP, X, dX; name, do_flux=nothing, 
         println("           $name parameters: Done Flux")
 
         flux_forward = function (P)
-            set_params!(L, P)
+            set_params!(L_params, P)
             forward(X, L)
         end
         (Y, logdet), back_Y_logdet = Flux.pullback(flux_forward, deepcopy(P))
@@ -98,6 +99,7 @@ function invertible_layer_test_gradient(L, P, dP, X, dX; name, do_flux=nothing, 
         @test norm(ΔP - ΔP_f) ./ max(norm(ΔP), norm(ΔP_f), 1) < tol
     end
 
+    # error("done")
     set_params!(L, deepcopy(P))
 
     # Test each parameter.
@@ -107,7 +109,7 @@ function invertible_layer_test_gradient(L, P, dP, X, dX; name, do_flux=nothing, 
         loss_test = function (p_vec)
             P = deepcopy(P)
             P[i].data = p_vec
-            return loss(L, P, X; with_grad=false)
+            return loss(P, X; with_grad=false)
         end
 
         if do_flux
@@ -135,7 +137,7 @@ function invertible_layer_test_gradient(L, P, dP, X, dX; name, do_flux=nothing, 
     clear_grad!(L)
     clear_grad!(P)
     loss_test = function (P; with_grad=false)
-        return loss(L, P, X; with_grad)
+        return loss(P, X; with_grad)
     end
     f0, ΔX = loss_test(deepcopy(P); with_grad=true)
     ΔP = deepcopy(get_grads(L))

@@ -69,7 +69,7 @@ reverse(RL::Reversed) = tag_as_reversed!(deepcopy(RL.I), false)
  entry contains a reference to the original parameter; i.e. modifying
  the paramters in `P`, modifies the parameters in `NL`.
 """
-function get_params(I::Invertible)
+function get_params(I::T) where T<:Union{Invertible, RQSpline1}
     params = Vector{Parameter}(undef, 0)
     for (f, tp) ∈ zip(fieldnames(typeof(I)), typeof(I).types)
         p = getfield(I, f)
@@ -107,7 +107,7 @@ reset!(AI::Array{<:Invertible}) = for I ∈ AI reset!(I) end
 
  Resets the gradient of all the parameters in NL
 """
-clear_grad!(I::Invertible) = clear_grad!(get_params(I))
+clear_grad!(I::T) where T<:Union{Invertible, RQSpline1} = clear_grad!(get_params(I))
 
 # Get gradients
 """
@@ -117,18 +117,18 @@ clear_grad!(I::Invertible) = clear_grad!(get_params(I))
  entry contains a reference to the original parameter's gradient; i.e. modifying
  the paramters in `P`, modifies the parameters in `NL`.
 """
-get_grads(I::Invertible) = [Parameter(p.grad) for p ∈ get_params(I)]
+get_grads(I::T) where T<:Union{Invertible, RQSpline1} = [Parameter(p.grad) for p ∈ get_params(I)]
 get_grads(A::Array{Union{Invertible, Nothing}}) = vcat([get_grads(A[i]) for i in 1:length(A)]...)
 get_grads(RL::Reversed)= get_grads(RL.I)
 get_grads(::Nothing) = []
 
 # Set parameters
-function set_params!(N::Invertible, θnew::Array{Parameter, 1})
+function set_params!(N::T, θnew::Array{Parameter, 1})where T<:Union{Invertible, RQSpline1}
     set_params!(get_params(N), θnew)
 end
 
 # Set parameters with BSON loaded params
-function set_params!(N::Invertible, θnew::Array{Any, 1})
+function set_params!(N::T, θnew::Array{Any, 1}) where T<:Union{Invertible, RQSpline1}
     set_params!(get_params(N), θnew)
 end
 

@@ -83,54 +83,68 @@ end
 
     # Test with the simplest configuration.
     name = "ConditionalLayerCorrelation with no subnetworks"
-    @testset verbose = true "$name (scale_activation=$scale_activation)" for scale_activation in ["damped_cosh", "softplus"], shift_cond_scalar in [true, false]
-        @testset verbose = true "$name (shift_activation=$shift_activation)" for shift_activation in ["damped_sinh", "softplus"]
-            @testset verbose = true "$name (shift_cond_scalar=$shift_cond_scalar)" for shift_cond_scalar in [true, false]
-                @testset verbose = true "$name (out_chan=$out_chan)" for out_chan in [split_num, 2*split_num]
-                    println("Testing $name")
-                    layer_conv1x1 = nothing
-                    layer_constant = LayerConstant(glorot_uniform(nx, ny, out_chan))
-                    if scale_activation == "damped_cosh"
-                        scale_activation = DampedCoshLayer()
-                    elseif scale_activation == "softplus"
-                        scale_activation = SoftplusLayer()
-                    end
-                    if shift_activation == "damped_sinh"
-                        shift_activation = DampedSinhLayer()
-                    elseif shift_activation == "softplus"
-                        shift_activation = SoftplusLayer()
-                    end
-                    L = ConditionalLayerCorrelation(nothing, layer_constant; logdet=true, shift_cond_scalar=true, scale_activation, shift_activation)
+    println("Testing $name")
+    @testset verbose = true "$name" begin
+        @testset verbose = true "$name (shift_cond_scalar does something)" begin
+            layer_constant = LayerConstant(glorot_uniform(nx, ny, split_num))
+            scale_activation = DampedCoshLayer()
+            shift_activation = DampedSinhLayer()
+            L1 = ConditionalLayerCorrelation(nothing, layer_constant; logdet=true, shift_cond_scalar=true, scale_activation, shift_activation)
+            L2 = ConditionalLayerCorrelation(nothing, layer_constant; logdet=true, shift_cond_scalar=false, scale_activation, shift_activation)
 
-                    if TT != Float32
-                        forward(Float32.(X), Float32.(Cond), L)
-                        P = deepcopy(get_params(L))
-                        for p in P
+            Y1, logdet1 = forward(X, Cond, L1)
+            Y2, logdet2 = forward(X, Cond, L2)
+            @test !isapprox(norm(Y1 - Y2)/norm(Y1), 0f0; atol=1e-5)
+        end
+        @testset verbose = true "$name (scale_activation=$scale_activation)" for scale_activation in ["damped_cosh", "softplus"], shift_cond_scalar in [true, false]
+            @testset verbose = true "$name (shift_activation=$shift_activation)" for shift_activation in ["damped_sinh", "softplus"]
+                @testset verbose = true "$name (shift_cond_scalar=$shift_cond_scalar)" for shift_cond_scalar in [true, false]
+                    @testset verbose = true "$name (out_chan=$out_chan)" for out_chan in [split_num, 2*split_num]
+                        println("Testing $name")
+                        layer_conv1x1 = nothing
+                        layer_constant = LayerConstant(glorot_uniform(nx, ny, out_chan))
+                        if scale_activation == "damped_cosh"
+                            scale_activation = DampedCoshLayer()
+                        elseif scale_activation == "softplus"
+                            scale_activation = SoftplusLayer()
+                        end
+                        if shift_activation == "damped_sinh"
+                            shift_activation = DampedSinhLayer()
+                        elseif shift_activation == "softplus"
+                            shift_activation = SoftplusLayer()
+                        end
+                        L = ConditionalLayerCorrelation(nothing, layer_constant; logdet=true, shift_cond_scalar, scale_activation, shift_activation)
+
+                        if TT != Float32
+                            forward(Float32.(X), Float32.(Cond), L)
+                            P = deepcopy(get_params(L))
+                            for p in P
+                                if isnothing(p.data)
+                                    continue
+                                end
+                                p.data = TT.(p.data)
+                            end
+                        else
+                            forward(X, Cond, L)
+                            P = deepcopy(get_params(L))
+                        end
+
+                        # Set up for parameters test.
+                        dP = deepcopy(P)
+                        for (p, dp) in zip(P, dP)
                             if isnothing(p.data)
+                                p.data = [0]
+                                dp.data = [0]
                                 continue
                             end
-                            p.data = TT.(p.data)
+                            dp.data = randn(eltype(p.data), size(p.data))
+                            dp.data ./= norm(p.data) + eps(TT)
                         end
-                    else
-                        forward(X, Cond, L)
-                        P = deepcopy(get_params(L))
-                    end
+                        set_params!(L, deepcopy(P))
 
-                    # Set up for parameters test.
-                    dP = deepcopy(P)
-                    for (p, dp) in zip(P, dP)
-                        if isnothing(p.data)
-                            p.data = [0]
-                            dp.data = [0]
-                            continue
-                        end
-                        dp.data = randn(eltype(p.data), size(p.data))
-                        dp.data ./= norm(p.data) + eps(TT)
+                        conditional_layer_test_inverse(L, X, Cond, dX)
+                        conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name, do_flux=true)
                     end
-                    set_params!(L, deepcopy(P))
-
-                    conditional_layer_test_inverse(L, X, Cond, dX)
-                    conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name, do_flux=true)
                 end
             end
         end
