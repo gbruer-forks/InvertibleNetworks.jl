@@ -73,7 +73,7 @@ function get_params(I::T) where T<:Union{Invertible, RQSpline1}
     params = Vector{Parameter}(undef, 0)
     for (f, tp) ∈ zip(fieldnames(typeof(I)), typeof(I).types)
         p = getfield(I, f)
-        if tp == Parameter
+        if typeof(p) == Parameter
             append!(params, [p])
         else
             append!(params, get_params(p))

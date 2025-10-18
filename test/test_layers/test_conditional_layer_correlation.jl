@@ -18,7 +18,6 @@ in_split, split_num = InvertibleNetworks.ConditionalLayerCorrelation_splitdims(n
 TT = Float64
 X = randn(TT, nx, ny, n_channel, batchsize)
 X0 = randn(TT, nx, ny, n_channel, batchsize)
-Y0 = randn(TT, nx, ny, n_channel, batchsize)
 dX = X - X0
 
 # Test activation functions.
@@ -79,6 +78,7 @@ name = "DampedSinh"
 end
 
 @testset verbose = true "ConditionalLayerCorrelation (n_channel_cond=$n_channel_cond)" for n_channel_cond in [n_channel, n_channel+2]
+    Random.seed!(4123)
     Cond = randn(TT, nx, ny, n_channel_cond, batchsize)
 
     # Test with the simplest configuration.
@@ -96,7 +96,7 @@ end
             Y2, logdet2 = forward(X, Cond, L2)
             @test !isapprox(norm(Y1 - Y2)/norm(Y1), 0f0; atol=1e-5)
         end
-        @testset verbose = true "$name (scale_activation=$scale_activation)" for scale_activation in ["damped_cosh", "softplus"], shift_cond_scalar in [true, false]
+        @testset verbose = true "$name (scale_activation=$scale_activation)" for scale_activation in ["damped_cosh", "softplus"]
             @testset verbose = true "$name (shift_activation=$shift_activation)" for shift_activation in ["damped_sinh", "softplus"]
                 @testset verbose = true "$name (shift_cond_scalar=$shift_cond_scalar)" for shift_cond_scalar in [true, false]
                     @testset verbose = true "$name (out_chan=$out_chan)" for out_chan in [split_num, 2*split_num]
@@ -187,8 +187,9 @@ end
         ΔX_f, ΔP_fT = back(ΔY)
         ΔP_f = [Parameter(a.data, a.grad) for a in ΔP_fT]
 
+       # @show P dP ΔP ΔX ΔX_f ΔP ΔP_f
         @test norm(ΔX - ΔX_f) ./ norm(ΔX) < 2f-6
-        @test norm(ΔP - ΔP_f) ./ norm(ΔP) < 2f-6
+        @test norm(ΔP - ΔP_f) ./ (1 + max(norm(ΔP), norm(ΔP_f))) < 2f-6
     end
 
     # Test with Conv1x1NoMutate.

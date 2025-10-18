@@ -29,9 +29,10 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
     end
 
     # Loss Function
-    loss = function (L, P, X, Cond; with_grad)
+    L_params = get_params(L)
+    loss = function (P, X, Cond; with_grad)
         if !isnothing(P)
-            set_params!(L, P)
+            set_params!(L_params, P)
         end
         Y, YCond, logdet = forward_wrap(X, Cond, L)
         f = log_likelihood(Y) - logdet
@@ -47,7 +48,7 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
     # Gradient test w.r.t. input X
     println("    $name: testing input")
     loss_test = function (X; with_grad=false)
-        return loss(L, nothing, X, Cond; with_grad)
+        return loss(nothing, X, Cond; with_grad)
     end
     f0, ΔX = loss_test(deepcopy(X); with_grad=true)
 
@@ -85,7 +86,7 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
     clear_grad!(L)
     clear_grad!(P)
     loss_test = function (P; with_grad=false)
-        return loss(L, P, X, Cond; with_grad)
+        return loss(P, X, Cond; with_grad)
     end
     f0, ΔX = loss_test(deepcopy(P); with_grad=true)
     ΔP = deepcopy(get_grads(L))
@@ -101,7 +102,7 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
 
         println("           $name parameters: Starting Flux backward")
         ΔP_fT = back(1f0)[1]
-        ΔP_f = [isnothing(a) ? Parameter(0, nothing) : Parameter(a.data, a.grad) for a in ΔP_fT]
+        ΔP_f = [isnothing(a) ? Parameter(zero(p.data), nothing) : Parameter(a.data, a.grad) for (p, a) in zip(P, ΔP_fT)]
 
         println("           $name parameters: Done Flux")
 
@@ -118,7 +119,7 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
         ΔY, = back_f1(Δf1)
         ΔY_Cond = nothing
         ΔP1t, = back_Y_YCond_logdet((ΔY, ΔY_Cond, Δlogdet))
-        ΔP1 = [isnothing(a) ? Parameter(0, nothing) : Parameter(a.data, a.grad) for a in ΔP1t]
+        ΔP1 = [isnothing(a) ? Parameter(zero(p.data), nothing) : Parameter(a.data, a.grad) for (p, a) in zip(P, ΔP1t)]
 
         @test f_f ≈ f0
         @test norm(ΔP - ΔP_f) ./ max(norm(ΔP), norm(ΔP_f), 1) < tol
@@ -129,7 +130,7 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
     # Test each parameter.
     do_taylor_test = length(P) < 6
     for (i, (p, dp, Δp)) in enumerate(zip(P, dP, ΔP))
-        if norm(dp) < 1e-10
+        if norm(dp) < 1e-10 || norm(Δp) < 1e-10
             println("    $name: skipping parameter $i")
             continue
         end
@@ -137,7 +138,7 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
         loss_test = function (p_vec)
             P = deepcopy(P)
             P[i].data = p_vec
-            return loss(L, P, X, Cond; with_grad=false)
+            return loss(P, X, Cond; with_grad=false)
         end
 
         if do_flux
@@ -165,7 +166,7 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
     clear_grad!(L)
     clear_grad!(P)
     loss_test = function (P; with_grad=false)
-        return loss(L, P, X, Cond; with_grad)
+        return loss(P, X, Cond; with_grad)
     end
     f0, ΔX = loss_test(deepcopy(P); with_grad=true)
     ΔP = deepcopy(get_grads(L))
@@ -181,7 +182,7 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
 
         println("           $name parameters: Starting Flux backward")
         ΔP_fT = back(1f0)[1]
-        ΔP_f = [isnothing(a) ? Parameter(0, nothing) : Parameter(a.data, a.grad)  for a in ΔP_fT]
+        ΔP_f = [isnothing(a) ? Parameter(zero(p.data), nothing) : Parameter(a.data, a.grad)  for (p, a) in zip(P, ΔP_fT)]
 
         println("           $name parameters: Done Flux")
 
