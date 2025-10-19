@@ -218,13 +218,17 @@ function spline_bin_normalized_adjoint(zx, d0, d1, Δzy, Δdzy_dzx=0)
     dzy_dzx, zy, zx_1mzx, den = spline_bin_normalized_derivative(zx, d0, d1)
 
     # d_dzydzx_d_zx = (2 * (1 - d0) + 2 * zy * (d0 + d1 - 2) - dzy_dzx * (d0 + d1 - 2) * (1 - 2 * zx)) / den
-    d_dzydzx_d_zx = (2(1 - d0) + (-2(2 - d0 - d1)*(zx^2 + d0*(1 - zx)*zx) + (2 - d0 - d1)*(2zx - d0*zx + d0*(1 - zx))*(1 - 2zx)) / (1 + (-2 + d0 + d1)*(1 - zx)*zx) - ((-2 + d0 + d1)*(1 - zx) - (-2 + d0 + d1)*zx)*((-(-2 + d0 + d1)*(zx^2 + d0*(1 - zx)*zx)*(1 - 2zx)) / ((1 + (-2 + d0 + d1)*(1 - zx)*zx)^2))) / (1 + (-2 + d0 + d1)*(1 - zx)*zx) - ((-2 + d0 + d1)*(1 - zx) - (-2 + d0 + d1)*zx)*((d0 + (-(-2 + d0 + d1)*(zx^2 + d0*(1 - zx)*zx)*(1 - 2zx)) / (1 + (-2 + d0 + d1)*(1 - zx)*zx) + 2(1 - d0)*zx) / ((1 + (-2 + d0 + d1)*(1 - zx)*zx)^2))
-
+    # d_dzydzx_d_zx = (2(1 - d0) + (-2(2 - d0 - d1)*(zx^2 + d0*(1 - zx)*zx) + (2 - d0 - d1)*(2zx - d0*zx + d0*(1 - zx))*(1 - 2zx)) / (1 + (-2 + d0 + d1)*(1 - zx)*zx) - ((-2 + d0 + d1)*(1 - zx) - (-2 + d0 + d1)*zx)*((-(-2 + d0 + d1)*(zx^2 + d0*(1 - zx)*zx)*(1 - 2zx)) / ((1 + (-2 + d0 + d1)*(1 - zx)*zx)^2))) / (1 + (-2 + d0 + d1)*(1 - zx)*zx) - ((-2 + d0 + d1)*(1 - zx) - (-2 + d0 + d1)*zx)*((d0 + (-(-2 + d0 + d1)*(zx^2 + d0*(1 - zx)*zx)*(1 - 2zx)) / (1 + (-2 + d0 + d1)*(1 - zx)*zx) + 2(1 - d0)*zx) / ((1 + (-2 + d0 + d1)*(1 - zx)*zx)^2))
+    d_dzydzx_d_zx = 2 * (1 - d0 + (d0 + d1 - 2)*(zy - dzy_dzx * (1 - 2 * zx))) / den
     # d_dzydzx_d_zx = (2 * (1 - d0) + (2 * zy - dzy_dzx * (1 - 2 * zx)) * (d0 + d1 - 2)) / den
-    d_dzydzx_d_d0 = ((1 - zy) * (1 - 2 * zx) - dzy_dzx * zx_1mzx) / den
-    d_dzydzx_d_d1 = (-zy * (1 - 2 * zx) - dzy_dzx * zx_1mzx) / den
+
+    # d_dzydzx_d_d0 = ((1 - zy) * (1 - 2 * zx) - dzy_dzx * zx_1mzx) / den
+    # d_dzydzx_d_d1 = (-zy * (1 - 2 * zx) - dzy_dzx * zx_1mzx) / den
+    m2zx_p1 = 1 - 2 * zx
     dzy_dd0 = (1 - zy) * zx_1mzx / den
     dzy_dd1 = -zy * zx_1mzx / den
+    d_dzydzx_d_d0 = (m2zx_p1 * (1 - zy) - dzy_dzx * zx_1mzx - dzy_dd0 * (d0 + d1 - 2) * m2zx_p1) / den
+    d_dzydzx_d_d1 = - (zy * m2zx_p1 + dzy_dzx * zx_1mzx + dzy_dd1 * (d0 + d1 - 2) * m2zx_p1) / den
 
     Δzx = dzy_dzx * Δzy + d_dzydzx_d_zx * Δdzy_dzx
     Δd0 = dzy_dd0 * Δzy + d_dzydzx_d_d0 * Δdzy_dzx
@@ -308,9 +312,9 @@ end
 function spline_bin_inverse(y, x0, y0, d; derivative=false)
     if y0 == 0
         if derivative
-            return y0
-        else
             return y0, zero(y)
+        else
+            return y0
         end
     end
     zy = y / y0
