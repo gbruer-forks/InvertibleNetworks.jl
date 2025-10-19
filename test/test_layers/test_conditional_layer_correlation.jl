@@ -13,6 +13,10 @@ nx = 5
 ny = 11
 n_channel = 3
 batchsize = 10
+nx = 3
+ny = 7
+n_channel = 2
+batchsize = 5
 in_split, split_num = InvertibleNetworks.ConditionalLayerCorrelation_splitdims(n_channel)
 
 TT = Float64
@@ -78,7 +82,7 @@ name = "DampedSinh"
     @test norm(ΔX - ΔX2) < 2f-5
 end
 
-function test_conditional_layer_correlation_full(L, X, Cond; do_flux=false, name="Conditional Layer Correlation")
+function test_conditional_layer_correlation_full(L, X, Cond; dp_scale=1, do_flux=false, name="Conditional Layer Correlation")
     if TT != Float32
         forward(Float32.(X), Float32.(Cond), L)
         P = deepcopy(get_params(L))
@@ -101,7 +105,7 @@ function test_conditional_layer_correlation_full(L, X, Cond; do_flux=false, name
             dp.data = [0]
             continue
         end
-        dp.data = randn(eltype(p.data), size(p.data))
+        dp.data = dp_scale * randn(eltype(p.data), size(p.data))
         dp.data ./= 1 + norm(p.data) + eps(TT)
     end
     set_params!(L, deepcopy(P))
@@ -110,17 +114,43 @@ function test_conditional_layer_correlation_full(L, X, Cond; do_flux=false, name
     conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name, do_flux)
 end
 
-name = "ConditionalLayerCorrelation (subnetwork=RQSpline1)"
+name = "ConditionalLayerCorrelation (subnetwork=Affine)"
 @testset verbose = true "$name" begin
-    out_chan = split_num + size(Cond)[end-1]
+    out_chan = split_num * 2
     @show split_num
-    layer_constant = LayerConstant(glorot_uniform(nx, ny, 6))
-    invertible_operator = RQSpline1Operator()
+    layer_constant = LayerConstant(glorot_uniform(nx, ny, out_chan))
+    invertible_operator = AffineCouplingOperator()
+    L = ConditionalLayerCorrelation(nothing, layer_constant, invertible_operator)
+    test_conditional_layer_correlation_full(L, X, Cond; name, do_flux=true)
+end
+
+name = "ConditionalLayerCorrelation (subnetwork=RQSpline1, constrained_params, identity params)"
+@testset verbose = true "$name" begin
+    out_chan = split_num * 3
+    layer_constant = LayerConstant(zeros(Float32, nx, ny, out_chan))
+    invertible_operator = RQSpline1Operator(; constrained_params=true)
     L = ConditionalLayerCorrelation(nothing, layer_constant, invertible_operator)
     test_conditional_layer_correlation_full(L, X, Cond; name, do_flux=false)
 end
 
-error("done")
+name = "ConditionalLayerCorrelation (subnetwork=RQSpline1, unconstrained_params, identity params)"
+@testset verbose = true "$name" begin
+    out_chan = split_num * 3
+    layer_constant = LayerConstant(repeat([0.5f0;;; 0.5f0;;; 1.0f0;;;]; inner=(nx, ny, out_chan ÷ 3)))
+    invertible_operator = RQSpline1Operator(; constrained_params=false)
+    L = ConditionalLayerCorrelation(nothing, layer_constant, invertible_operator)
+    test_conditional_layer_correlation_full(L, X, Cond; name, do_flux=false, dp_scale=1e-1)
+end
+
+
+name = "ConditionalLayerCorrelation (subnetwork=RQSpline1, constrained_params, random params)"
+@testset verbose = true "$name" begin
+    out_chan = split_num * 3
+    layer_constant = LayerConstant(glorot_uniform(nx, ny, out_chan))
+    invertible_operator = RQSpline1Operator(; constrained_params=true)
+    L = ConditionalLayerCorrelation(nothing, layer_constant, invertible_operator)
+    test_conditional_layer_correlation_full(L, X, Cond; name, do_flux=false)
+end
 
 @testset verbose = true "ConditionalLayerCorrelation (n_channel_cond=$n_channel_cond)" for n_channel_cond in [n_channel, n_channel+2]
     Random.seed!(4123)

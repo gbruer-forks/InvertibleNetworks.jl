@@ -39,7 +39,7 @@ println("Testing $name")
         @test isapprox(norm(Y - X_inv)/norm(X), 0f0; atol=1f-5)
 
         ΔY = ones(size(Y))
-        Δx, Δx0, Δy0, Δd, X_inv2 = backward(ΔY, Y, 0.5, 0.5, 1, L)
+        Δx, Δx0, Δy0, Δd, X_inv2 = backward(ΔY, X, 0.5, 0.5, 1, L)
         @test isapprox(norm(X_inv2 - X_inv)/norm(X), 0f0; atol=1f-5)
         @test isapprox(norm(Δx - ΔY)/norm(X), 0f0; atol=1f-5)
         @test size(Δx0) == size(Y)
@@ -64,7 +64,7 @@ println("Testing $name")
         @test isapprox(norm(Y - X_inv)/norm(X), 0f0; atol=1f-5)
 
         ΔY = ones(size(Y))
-        Δx, X_inv2 = backward(ΔY, Y, L)
+        Δx, X_inv2 = backward(ΔY, X, L)
         @test isapprox(norm(X_inv2 - X_inv)/norm(X), 0f0; atol=1f-5)
         @test isapprox(norm(Δx - ΔY)/norm(X), 0f0; atol=1f-5)
         @test size(L.x0.grad) == size(Y)[1:end-1]
@@ -107,12 +107,12 @@ println("Testing $name")
         end
         set_params!(L, deepcopy(P))
         if random_init
-            for p in get_params(L)
+            for p in P
                 p.data = 5e-1 * randn(eltype(p.data), size(p.data))
             end
         end
 
         invertible_layer_test_inverse(L, X, dX)
-        invertible_layer_test_gradient(L, P, dP, X, dX; name, do_flux=false, tol=1e-6)
+        invertible_layer_test_gradient(L, P, dP, X, dX; name, do_flux=false, tol=1e-6, backward_y=false)
     end
 end

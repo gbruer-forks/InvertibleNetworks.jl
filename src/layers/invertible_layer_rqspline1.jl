@@ -66,7 +66,7 @@ function forward(X::AbstractArray{T, N}, x0, y0, d, L::RQSpline1_func{LD,C}) whe
         # println()
         dy_dxs_ys = spline_derivative.(X, x0, y0, d)
         Y = reshape(getindex.(dy_dxs_ys, 2), size(X))
-        logdet = sum(log.(first.(dy_dxs_ys))) # ./ size(X, N)
+        logdet = sum(log.(first.(dy_dxs_ys))) ./ size(X, N)
         return Y, logdet
     end
     Y = spline.(X, x0, y0, d)
@@ -85,14 +85,14 @@ end
 
 function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, x0, y0, d, L::RQSpline1_func{LD,C}) where {T,N,LD,C}
     if LD
-        Δlogdet = T(-1) / size(Y, N)
+        Δlogdet = T(-1)
     else
         Δlogdet = T(0)
     end
     return backward(ΔY, Δlogdet, Y, x0, y0, d, L)
 end
 
-function backward(ΔY::AbstractArray{T, N}, Δlogdet::T, Y::AbstractArray{T, N}, x0, y0, d, L::RQSpline1_func{LD,C}) where {T,N,LD,C}
+function backward(ΔY::AbstractArray{T, N}, Δlogdet::T, X::AbstractArray{T, N}, x0, y0, d, L::RQSpline1_func{LD,C}) where {T,N,LD,C}
     if C
         x0_orig = x0
         y0_orig = y0
@@ -101,11 +101,17 @@ function backward(ΔY::AbstractArray{T, N}, Δlogdet::T, Y::AbstractArray{T, N},
         y0 = Sigmoid(y0; low=T(0), high=T(1))
         d = ExpClamp(d; clamp=T(3))
     end
-    X_dy_dx = spline_inverse.(Y, x0, y0, d; derivative=true)
-    X = first.(X_dy_dx)
-    dy_dx = getindex.(X_dy_dx, 2)
+    # X_dy_dx = spline_inverse.(Y, x0, y0, d; derivative=true)
+    # X = first.(X_dy_dx)
+    # dy_dx = getindex.(X_dy_dx, 2)
 
-    Δdy_dx = Δlogdet ./ dy_dx
+    dy_dx_Y = spline_derivative.(X, x0, y0, d)
+    dy_dx = first.(dy_dx_Y)
+    Y = getindex.(dy_dx_Y, 2)
+
+    # @show Δlogdet
+    # error("done")
+    Δdy_dx = (Δlogdet / size(Y, N)) ./ dy_dx
     Δx_Δx0_Δy0_Δd = Broadcast.broadcasted(spline_adjoint, X, x0, y0, d, ΔY, Δdy_dx)
     Δx = getindex.(Δx_Δx0_Δy0_Δd, 1)
     Δx0 = getindex.(Δx_Δx0_Δy0_Δd, 2)

@@ -9,7 +9,7 @@ function invertible_layer_test_inverse(L, X, dX)
     @test isapprox(norm(X - X_)/norm(X), 0f0; atol=1e-5)
 end
 
-function invertible_layer_test_gradient(L, P, dP, X, dX; name, do_flux=nothing, tol=1e-10)
+function invertible_layer_test_gradient(L, P, dP, X, dX; backward_y=true, name, do_flux=nothing, tol=1e-10)
     L_params = get_params(L)
     loss = function (P, X; with_grad)
         if !isnothing(P)
@@ -19,7 +19,11 @@ function invertible_layer_test_gradient(L, P, dP, X, dX; name, do_flux=nothing, 
         f = log_likelihood(Y) - logdet
         if with_grad
             ΔY = ∇log_likelihood(Y)
-            ΔX = backward(ΔY, Y, L)[1]
+            if backward_y
+                ΔX = backward(ΔY, Y, L)[1]
+            else
+                ΔX = backward(ΔY, X, L)[1]
+            end
             return f, ΔX
         end
         return f

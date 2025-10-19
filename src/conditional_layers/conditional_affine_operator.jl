@@ -7,6 +7,11 @@ struct AffineCouplingOperator <: NeuralNetLayer
     shift_activation::ActivationFunction
 end
 
+function AffineCouplingOperator(; scale_activation = DampedCoshLayer(), shift_activation=DampedSinhLayer(), shift_cond_scalar=true)
+    C_weights = shift_cond_scalar ? Parameter(nothing) : nothing
+    return AffineCouplingOperator(C_weights, shift_cond_scalar, scale_activation, shift_activation)
+end
+
 function forward(X1::AbstractArray{T, N}, C_X2::AbstractArray{T, NcNx2}, w::AbstractArray{Tw, Nw}, L::AffineCouplingOperator) where {T,Tw,N,NcNx2,Nw}
     # Split subnetwork output to get scale and shift parts.
     if size(w)[1:N-1] == size(X1)[1:N-1]
@@ -44,7 +49,7 @@ function forward(X1::AbstractArray{T, N}, C_X2::AbstractArray{T, NcNx2}, w::Abst
     end
 
     Y1 = Sm .* X1 + Tm
-    logdet = scale_logdet_forward(Sm)
+    logdet = scale_logdet_forward(Sm) / size(X1, N)
     return Y1, logdet
 end
 
@@ -78,12 +83,17 @@ function inverse(Y1::AbstractArray{T, N}, C_X2::AbstractArray{T, NcNx2}, w::Abst
     return X1, (; w1, w2, Sm, Tm_1, Tm)
 end
 
+function backward(ΔY1::AbstractArray{T, N}, X1::AbstractArray{T, N}, C_X2::AbstractArray{T, NcNx2}, w::AbstractArray{T, Nw}, L::AffineCouplingOperator, saved) where {T,N,NcNx2,Nw}
+    Δlogdet = T(-1) / size(ΔY1, N)
+    return backward(ΔY1, Δlogdet, X1, C_X2, w, L, saved)
+end
+
 function backward(ΔY1::AbstractArray{T, N}, Δlogdet::T, X1::AbstractArray{T, N}, C_X2::AbstractArray{T, NcNx2}, w::AbstractArray{T, Nw}, L::AffineCouplingOperator, saved) where {T,N,NcNx2,Nw}
     (; w1, w2, Sm, Tm_1, Tm) = saved
     ΔTm = copy(ΔY1)
 
     ΔSm = ΔY1 .* X1
-    ΔSm -= Δlogdet * scale_logdet_backward(Sm)
+    ΔSm = ΔSm + Δlogdet * scale_logdet_backward(Sm)
     ΔX1 = ΔY1 .* Sm
 
     # Backpropagate activations.

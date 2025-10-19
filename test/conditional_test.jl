@@ -75,6 +75,7 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
     grad_test(loss_test, deepcopy(X), deepcopy(dX), deepcopy(ΔX); maxiter=20, h0=4f0, hfactor=5f-1, eT=TT)
 
     if do_flux
+        @show ΔX ΔX_f
         @show norm(ΔX - ΔX_f) ./ max(norm(ΔX), norm(ΔX_f))
         println("    $name input: Then with Flux's gradient")
         grad_test(loss_test, deepcopy(X), deepcopy(dX), deepcopy(ΔX_f); maxiter=20, h0=4f0, hfactor=5f-1, eT=TT)
@@ -122,10 +123,12 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
         ΔP1 = [isnothing(a) ? Parameter(zero(p.data), nothing) : Parameter(a.data, a.grad) for (p, a) in zip(P, ΔP1t)]
 
         @test f_f ≈ f0
+        @show P ΔP ΔP_f
         @test norm(ΔP - ΔP_f) ./ max(norm(ΔP), norm(ΔP_f), 1) < tol
     end
 
-    set_params!(L, deepcopy(P))
+    P_orig = deepcopy(P)
+    set_params!(L, deepcopy(P_orig))
 
     # Test each parameter.
     do_taylor_test = length(P) < 6
@@ -157,6 +160,8 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
             do_taylor_test && println("    $name parameter $i: Then with Flux's gradient")
             do_taylor_test && grad_test(loss_test, deepcopy(p.data), deepcopy(dp.data), deepcopy(Δp_f.data); maxiter=20, h0=4f0, hfactor=5f-1, eT=TT, unittest=:test)
         end
+
+        set_params!(L, deepcopy(P_orig))
     end
 
     # Test all parameters.
@@ -165,6 +170,7 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
     println("   $name: testing all parameters")
     clear_grad!(L)
     clear_grad!(P)
+    P = get_params(L)
     loss_test = function (P; with_grad=false)
         return loss(P, X, Cond; with_grad)
     end
@@ -186,6 +192,7 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
 
         println("           $name parameters: Done Flux")
 
+        @show P ΔP ΔP_f
         @test norm(ΔP - ΔP_f) ./ max(norm(ΔP), norm(ΔP_f), 1) < tol
     end
 

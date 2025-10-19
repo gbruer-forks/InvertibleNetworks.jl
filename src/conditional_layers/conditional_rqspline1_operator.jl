@@ -26,7 +26,7 @@ end
 
 
 function unextract_rqspline1_params(x0, y0, d)
-    w = cat(x0, y0, d; dims=size(x0)[end-1])
+    w = cat(x0, y0, d; dims=ndims(x0)-1)
     return w
 end
 
@@ -41,10 +41,17 @@ function inverse(Y1::AbstractArray{T, N}, _::AbstractArray{T, NcNx2}, w::Abstrac
     return inverse(Y1, x0, y0, d, L.spline), nothing
 end
 
+function backward(ΔY1::AbstractArray{T, N}, X1::AbstractArray{T, N}, C_X2::AbstractArray{T, NcNx2}, w::AbstractArray{T, Nw}, L::RQSpline1Operator, saved) where {T,N,NcNx2,Nw}
+    x0, y0, d = extract_rqspline1_params(w)
+    ΔX1, Δx0, Δy0, Δd, X = backward(ΔY1, X1, x0, y0, d, L.spline)
+    Δw = unextract_rqspline1_params(Δx0, Δy0, Δd)
+    return ΔX1, zero(C_X2), Δw
+end
+
 function backward(ΔY1::AbstractArray{T, N}, Δlogdet::T, X1::AbstractArray{T, N}, C_X2::AbstractArray{T, NcNx2}, w::AbstractArray{T, Nw}, L::RQSpline1Operator, saved) where {T,N,NcNx2,Nw}
     x0, y0, d = extract_rqspline1_params(w)
-    Δx, Δx0, Δy0, Δd, X = backward(ΔY1, X1, x0, y0, d, L.spline)
+    ΔX1, Δx0, Δy0, Δd, X = backward(ΔY1, Δlogdet, X1, x0, y0, d, L.spline)
     Δw = unextract_rqspline1_params(Δx0, Δy0, Δd)
-    return Δx, zero(C_X2), Δw
+    return ΔX1, zero(C_X2), Δw
 end
 

@@ -65,7 +65,7 @@ function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalL
 
     Y = tensor_cat(Y1, Y2)
 
-    L.logdet == true ? (return Y, logdet_pre + logdet / size(X)[end]) : (return Y)
+    L.logdet == true ? (return Y, logdet_pre + logdet) : (return Y)
 end
 
 # Inverse pass: Input Y, Output X
@@ -110,8 +110,9 @@ function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, C::AbstractA
 
     # Invertible operator applies adjoint Jacobian of Y1.
 
-    Δlogdet = L.logdet ? T(1) / size(Y)[end] : T(0)
-    ΔX1, ΔC_X2_invop, Δw = backward(ΔY1, Δlogdet, X1, C_X2, w, L.invertible_operator, saved)
+    # Δlogdet = L.logdet ? T(-1) / size(Y)[end] : T(0)
+    # ΔX1, ΔC_X2_invop, Δw = backward(ΔY1, Δlogdet, X1, C_X2, w, L.invertible_operator, saved)
+    ΔX1, ΔC_X2_invop, Δw = backward(ΔY1, X1, C_X2, w, L.invertible_operator, saved)
 
     # Backpropagate subnetwork.
     ΔC_X2_subnet = backward(Δw, C_X2, L.subnetwork)
