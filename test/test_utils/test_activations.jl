@@ -17,11 +17,11 @@ X0 = glorot_uniform(nx, ny, n_in, batchsize)
 dX = X - X0
 
 # Invertibility
-err = norm(X - LeakyReLUinv(LeakyReLU(X)))
-@test isapprox(err, 0f0, atol=1f-6)
+err_inv = norm(X - LeakyReLUinv(LeakyReLU(X)))
+@test isapprox(err_inv, 0f0, atol=1f-6)
 
-err = norm(X - LeakyReLU(LeakyReLUinv(X)))
-@test isapprox(err, 0f0, atol=1f-6)
+err_inv = norm(X - LeakyReLU(LeakyReLUinv(X)))
+@test isapprox(err_inv, 0f0, atol=1f-6)
 
 # Gradient test
 function objective(X, Y)
@@ -109,8 +109,8 @@ X0 = glorot_uniform(nx, ny, n_in, batchsize)
 dX = X - X0
 
 # Invertibility
-err = norm(X - SigmoidInv(Sigmoid(X))) / norm(X)
-@test isapprox(err, 0f0, atol=1f-5)
+err_inv = norm(X - SigmoidInv(Sigmoid(X))) / norm(X)
+@test isapprox(err_inv, 0f0, atol=1f-5)
 
 # Gradient test sigmoid
 function objective(X, Y)
@@ -156,8 +156,8 @@ X0 = glorot_uniform(nx, ny, n_in, batchsize)
 dX = X - X0
 
 # Invertibility
-err = norm(X - SigmoidInv(Sigmoid(X; low=low, high=high); low=low, high=high)) / norm(X)
-@test isapprox(err, 0f0, atol=1f-5)
+err_inv = norm(X - SigmoidInv(Sigmoid(X; low=low, high=high); low=low, high=high)) / norm(X)
+@test isapprox(err_inv, 0f0, atol=1f-5)
 
 # Gradient test Shifted and Scaled Sigmoid
 function objective(X, Y)
@@ -291,8 +291,8 @@ X0 = glorot_uniform(nx, ny, n_in, batchsize)
 dX = X - X0
 
 # Invertibility
-err = norm(X - ExpClampInv(ExpClamp(X))) / norm(X)
-@test isapprox(err, 0f0, atol=1f-5)
+err_inv = norm(X - ExpClampInv(ExpClamp(X))) / norm(X)
+@test isapprox(err_inv, 0f0, atol=1f-5)
 
 # Gradient test sigmoid
 function objective(X, Y)

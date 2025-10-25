@@ -1,10 +1,10 @@
-export NetworkConditionalCorrelation
+export NetworkConditionalCouplingStack
 
-struct NetworkConditionalCorrelation <: InvertibleNetwork
+struct NetworkConditionalCouplingStack <: InvertibleNetwork
     state_networks::AbstractArray{Union{ActNorm, Nothing}, 2}
     state_final_network::Union{ActNorm, Nothing}
     cond_network::Union{ActNorm, Nothing}
-    CL::AbstractArray{ConditionalLayerCorrelation, 2}
+    CL::AbstractArray{ConditionalCouplingLayer, 2}
     Z_dims::Union{Array{Array, 1}, Nothing}
     L::Int64
     K::Int64
@@ -12,14 +12,15 @@ struct NetworkConditionalCorrelation <: InvertibleNetwork
     split_scales::Bool
 end
 
-@Flux.functor NetworkConditionalCorrelation
+@Flux.functor NetworkConditionalCouplingStack
 
 # Constructor
-function NetworkConditionalCorrelation(in_shape, cond_shape, L, K;
+function NetworkConditionalCouplingStack(in_shape, cond_shape, L, K;
     split_scales=false,
     cond_network_generator=nothing,
     state_initial_network_generator=nothing,
     state_middle_network_generator=nothing,
+    invertible_coupling_operator_generator=nothing,
     state_final_network_generator=nothing,
     prenetwork_generator=nothing,
     subnetwork_generator=nothing,
@@ -50,9 +51,13 @@ function NetworkConditionalCorrelation(in_shape, cond_shape, L, K;
         subnetwork_generator = (in_shape, out_shape) -> LayerConstant(glorot_uniform(out_shape...))
     end
 
+    if isnothing(invertible_coupling_operator_generator)
+        invertible_coupling_operator_generator = (inv_shape, sub_shape) -> AffineCouplingOperator()
+    end
+
     state_networks = Array{Union{ActNorm, Nothing}}(undef, L, K)    # activation normalization
     cond_network = cond_network_generator(cond_shape)
-    CL = Array{ConditionalLayerCorrelation}(undef, L, K)  # coupling layers w/ 1x1 convolution and residual block
+    CL = Array{ConditionalCouplingLayer}(undef, L, K)  # coupling layers w/ 1x1 convolution and residual block
  
     if split_scales
         Z_dims = fill!(Array{Array}(undef, L-1), [1,1]) #fill in with dummy values so that |> gpu accepts it   # save dimensions for inverse/backward pass
@@ -69,7 +74,6 @@ function NetworkConditionalCorrelation(in_shape, cond_shape, L, K;
     end
 
     in_shape = collect(in_shape)
-    out_shape = collect(in_shape)
     cond_shape = collect(cond_shape)
     for i=1:L
         # squeeze if split_scales is turned on
@@ -86,23 +90,25 @@ function NetworkConditionalCorrelation(in_shape, cond_shape, L, K;
             end
 
             # 1x1 Convolution and residual block for coupling layers
-            in_split, split_num = ConditionalLayerCorrelation_splitdims(in_shape[end])
-            out_shape[end]  = split_num
+            in_split, split_num = ConditionalCouplingLayer_splitdims(in_shape[end])
 
             prenetwork = prenetwork_generator(in_shape)
             sub_shape = tuple(in_shape[1:end-1]..., in_split+cond_shape[end])
-            subnetwork = subnetwork_generator(sub_shape, out_shape)
-            CL[i, j] = ConditionalLayerCorrelation(prenetwork, subnetwork; coupling_layer_params..., logdet=true)
+            inv_shape = tuple(in_shape[1:end-1]..., split_num)
+            invertible_operator = invertible_coupling_operator_generator(inv_shape, sub_shape)
+            params_shape = get_params_shape(inv_shape, invertible_operator)
+            subnetwork = subnetwork_generator(sub_shape, params_shape)
+            CL[i, j] = ConditionalCouplingLayer(prenetwork, subnetwork, invertible_operator; coupling_layer_params..., logdet=true)
         end
         (i < L && split_scales) && (in_shape[end] = Int64(in_shape[end]/2)) # split
     end
     state_final_network = state_final_network_generator(in_shape)
 
-    return NetworkConditionalCorrelation(state_networks, state_final_network, cond_network, CL, Z_dims, L, K, squeezer, split_scales)
+    return NetworkConditionalCouplingStack(state_networks, state_final_network, cond_network, CL, Z_dims, L, K, squeezer, split_scales)
 end
 
 # Forward pass and compute logdet
-function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, G::NetworkConditionalCorrelation) where {T, N}
+function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, G::NetworkConditionalCouplingStack) where {T, N}
     G.split_scales && (Z_save = array_of_array(X, G.L-1))
     orig_shape = size(X)
 
@@ -137,7 +143,7 @@ function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, G::NetworkCondi
 end
 
 # Inverse pass 
-function inverse(X::AbstractArray{T, N}, C::AbstractArray{T, N}, G::NetworkConditionalCorrelation) where {T, N}
+function inverse(X::AbstractArray{T, N}, C::AbstractArray{T, N}, G::NetworkConditionalCouplingStack) where {T, N}
     if !isnothing(G.state_final_network)
         X = inverse(X, G.state_final_network)
     end
@@ -163,7 +169,7 @@ function inverse(X::AbstractArray{T, N}, C::AbstractArray{T, N}, G::NetworkCondi
 end
 
 # Backward pass and compute gradients
-function backward(ΔX::AbstractArray{T, N}, X::AbstractArray{T, N}, C::AbstractArray{T, N}, G::NetworkConditionalCorrelation;) where {T, N}
+function backward(ΔX::AbstractArray{T, N}, X::AbstractArray{T, N}, C::AbstractArray{T, N}, G::NetworkConditionalCouplingStack;) where {T, N}
     # Split data and gradients
     if G.split_scales
         ΔZ_save, ΔX = split_states(ΔX[:], G.Z_dims)

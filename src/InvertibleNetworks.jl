@@ -52,6 +52,7 @@ include("utils/chainrules.jl")
 include("conditional_layers/conditional_layer_residual_block.jl")
 include("conditional_layers/conditional_affine_operator.jl")
 include("conditional_layers/conditional_rqspline1_operator.jl")
+include("conditional_layers/conditional_decorrelation_operator.jl")
 include("layers/layer_flux_block.jl")
 include("layers/layer_residual_block.jl")
 include("layers/layer_resnet.jl")
@@ -75,11 +76,11 @@ include("networks/invertible_network_hyperbolic.jl")    # Hyperbolic: Lensink et
 # Conditional layers and nets
 include("conditional_layers/conditional_layer_glow.jl")
 include("conditional_layers/conditional_layer_hint.jl")
-include("conditional_layers/conditional_layer_correlation.jl")
+include("conditional_layers/conditional_coupling_layer.jl")
 include("networks/invertible_network_conditional_glow.jl")
 include("networks/invertible_network_conditional_hint.jl")
 include("networks/invertible_network_conditional_hint_multiscale.jl")
-include("networks/invertible_network_conditional_correlation.jl")
+include("networks/invertible_network_conditional_coupling_stack.jl")
 
 include("networks/summarized_net.jl")
 

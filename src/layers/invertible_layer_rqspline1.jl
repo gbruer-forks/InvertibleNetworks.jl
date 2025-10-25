@@ -39,8 +39,8 @@ function inverse(Y::AbstractArray{T, N}, L::RQSpline1_params{LD,C}) where {T,N,L
     return inverse(Y, L.x0.data, L.y0.data, L.d.data, RQSpline1_func{LD,C}())
 end
 
-function backward(Y::AbstractArray{T, N}, ΔY::AbstractArray{T, N}, L::RQSpline1_params{LD,C}) where {T,N,LD,C}
-    Δx, Δx0, Δy0, Δd, X = backward(Y, ΔY, L.x0.data, L.y0.data, L.d.data, RQSpline1_func{LD,C}())
+function backward(X::AbstractArray{T, N}, ΔY::AbstractArray{T, N}, L::RQSpline1_params{LD,C}) where {T,N,LD,C}
+    Δx, Δx0, Δy0, Δd = backward(X, ΔY, L.x0.data, L.y0.data, L.d.data, RQSpline1_func{LD,C}())
 
     Δx0 = dropdims(sum(Δx0; dims=N); dims=N)
     Δy0 = dropdims(sum(Δy0; dims=N); dims=N)
@@ -48,7 +48,7 @@ function backward(Y::AbstractArray{T, N}, ΔY::AbstractArray{T, N}, L::RQSpline1
     L.x0.grad = Δx0
     L.y0.grad = Δy0
     L.d.grad = Δd
-    return Δx, X
+    return Δx
 end
 
 function forward(X::AbstractArray{T, N}, x0, y0, d, L::RQSpline1_func{LD,C}) where {T,N,LD,C}
@@ -64,6 +64,10 @@ function forward(X::AbstractArray{T, N}, x0, y0, d, L::RQSpline1_func{LD,C}) whe
         # # @show size(X) size(x0) size(y0) size(d)
         # println()
         # println()
+        # @show size(X)
+        # @show size(x0)
+        # @show size(y0)
+        # @show size(d)
         dy_dxs_ys = spline_derivative.(X, x0, y0, d)
         Y = reshape(getindex.(dy_dxs_ys, 2), size(X))
         logdet = sum(log.(first.(dy_dxs_ys))) ./ size(X, N)
@@ -83,13 +87,13 @@ function inverse(Y::AbstractArray{T, N}, x0, y0, d, L::RQSpline1_func{LD,C}) whe
     return X
 end
 
-function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, x0, y0, d, L::RQSpline1_func{LD,C}) where {T,N,LD,C}
+function backward(ΔY::AbstractArray{T, N}, X::AbstractArray{T, N}, x0, y0, d, L::RQSpline1_func{LD,C}) where {T,N,LD,C}
     if LD
         Δlogdet = T(-1)
     else
         Δlogdet = T(0)
     end
-    return backward(ΔY, Δlogdet, Y, x0, y0, d, L)
+    return backward(ΔY, Δlogdet, X, x0, y0, d, L)
 end
 
 function backward(ΔY::AbstractArray{T, N}, Δlogdet::T, X::AbstractArray{T, N}, x0, y0, d, L::RQSpline1_func{LD,C}) where {T,N,LD,C}
@@ -138,7 +142,7 @@ function backward(ΔY::AbstractArray{T, N}, Δlogdet::T, X::AbstractArray{T, N},
         Δy0 = SigmoidGrad(Δy0, y0; x=y0_orig, low=T(0), high=T(1))
         Δd = ExpClampGrad(Δd, d; x=d_orig, clamp=T(3))
     end
-    return Δx, Δx0, Δy0, Δd, X
+    return Δx, Δx0, Δy0, Δd
 end
 
 

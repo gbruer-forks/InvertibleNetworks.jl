@@ -1,37 +1,36 @@
-export ConditionalLayerCorrelation
+export ConditionalCouplingLayer
 
 using Flux: get_device
 
-struct ConditionalLayerCorrelation <: NeuralNetLayer
+struct ConditionalCouplingLayer <: NeuralNetLayer
     prenetwork::Union{Nothing, Conv1x1, Conv1x1NoMutate}
     subnetwork::Union{ResidualBlock, LayerConstant}
-    invertible_operator::Union{AffineCouplingOperator, RQSpline1Operator}
+    invertible_operator::Union{AffineCouplingOperator, RQSpline1Operator, ConditionalDecorrelationOperator}
     logdet::Bool
 end
 
-@Flux.functor ConditionalLayerCorrelation
+@Flux.functor ConditionalCouplingLayer
 
-function ConditionalLayerCorrelation(prenetwork, subnetwork::ResidualBlock; logdet=false, kwargs...)
+function ConditionalCouplingLayer(prenetwork, subnetwork::ResidualBlock; logdet=false, kwargs...)
     subnetwork.fan == false && throw("Set ResidualBlock.fan == true")
-    return ConditionalLayerCorrelation(prenetwork, subnetwork, logdet; kwargs...)
+    return ConditionalCouplingLayer(prenetwork, subnetwork, logdet; kwargs...)
 end
 
-function ConditionalLayerCorrelation(prenetwork, subnetwork; logdet=false, kwargs...)
-    return ConditionalLayerCorrelation(prenetwork, subnetwork, logdet; kwargs...)
+function ConditionalCouplingLayer(prenetwork, subnetwork; logdet=false, kwargs...)
+    return ConditionalCouplingLayer(prenetwork, subnetwork, logdet; kwargs...)
 end
 
-function ConditionalLayerCorrelation(prenetwork, subnetwork, invertible_operator; logdet=true)
-    return ConditionalLayerCorrelation(prenetwork, subnetwork, invertible_operator, logdet)
+function ConditionalCouplingLayer(prenetwork, subnetwork, invertible_operator; logdet=true)
+    return ConditionalCouplingLayer(prenetwork, subnetwork, invertible_operator, logdet)
 end
 
 # For backwards compatibility.
-function ConditionalLayerCorrelation(prenetwork, subnetwork, logdet::Bool; scale_activation = DampedCoshLayer(), shift_activation=DampedSinhLayer(), shift_cond_scalar=true)
-    C_weights = shift_cond_scalar ? Parameter(nothing) : nothing
-    invertible_operator = AffineCouplingOperator(C_weights, shift_cond_scalar, scale_activation, shift_activation)
-    return ConditionalLayerCorrelation(prenetwork, subnetwork, invertible_operator, logdet)
+function ConditionalCouplingLayer(prenetwork, subnetwork, logdet::Bool; scale_activation = DampedCoshLayer(), shift_activation=DampedSinhLayer(), shift_cond_scalar=true)
+    invertible_operator = AffineCouplingOperator(; shift_cond_scalar, scale_activation, shift_activation)
+    return ConditionalCouplingLayer(prenetwork, subnetwork, invertible_operator, logdet)
 end
 
-function ConditionalLayerCorrelation_splitdims(n_in)
+function ConditionalCouplingLayer_splitdims(n_in)
     split_num = Int(round(n_in/2))
     if split_num == 0
         split_num = 1
@@ -41,7 +40,7 @@ function ConditionalLayerCorrelation_splitdims(n_in)
 end
 
 # Forward pass: Input X, Output Y
-function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalLayerCorrelation) where {T,N}
+function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalCouplingLayer) where {T,N}
     if !isnothing(L.prenetwork)
         X0, logdet_pre = forward(X, L.prenetwork)
     else
@@ -69,7 +68,7 @@ function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalL
 end
 
 # Inverse pass: Input Y, Output X
-function inverse(Y::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalLayerCorrelation; save=false) where {T,N}
+function inverse(Y::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalCouplingLayer; save=false) where {T,N}
 
     Y1, Y2 = tensor_split(Y)
     if length(Y1) == 0
@@ -97,7 +96,7 @@ function inverse(Y::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalL
 end
 
 # Backward pass: Input (ΔY, Y), Output (ΔX, X)
-function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalLayerCorrelation) where {T,N}
+function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalCouplingLayer) where {T,N}
     # Recompute forward state
     X, X1, X2, w, saved = inverse(Y, C, L; save=true)
 

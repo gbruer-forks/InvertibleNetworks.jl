@@ -1,20 +1,31 @@
-export AffineCouplingOperator
+export AffineCouplingOperator, get_params_shape, scale_logdet_forward, scale_logdet_backward
 
 struct AffineCouplingOperator <: NeuralNetLayer
     C_weights::Union{Parameter, Nothing}
     shift_cond_scalar::Bool
     scale_activation::ActivationFunction
     shift_activation::ActivationFunction
+    joint_correlation::Bool
 end
 
-function AffineCouplingOperator(; scale_activation = DampedCoshLayer(), shift_activation=DampedSinhLayer(), shift_cond_scalar=true)
+function AffineCouplingOperator(; scale_activation = DampedCoshLayer(), shift_activation=DampedSinhLayer(), shift_cond_scalar=false,joint_correlation=false)
     C_weights = shift_cond_scalar ? Parameter(nothing) : nothing
-    return AffineCouplingOperator(C_weights, shift_cond_scalar, scale_activation, shift_activation)
+    return AffineCouplingOperator(C_weights, shift_cond_scalar, scale_activation, shift_activation, joint_correlation)
+end
+
+function get_params_shape(input_shape, L::AffineCouplingOperator)
+    if L.joint_correlation
+        num_params = input_shape[end]
+    else
+        num_params = input_shape[end] * 2
+    end
+    params_shape = tuple(input_shape[1:end-1]..., num_params)
+    return params_shape
 end
 
 function forward(X1::AbstractArray{T, N}, C_X2::AbstractArray{T, NcNx2}, w::AbstractArray{Tw, Nw}, L::AffineCouplingOperator) where {T,Tw,N,NcNx2,Nw}
     # Split subnetwork output to get scale and shift parts.
-    if size(w)[1:N-1] == size(X1)[1:N-1]
+    if L.joint_correlation
         w1 = w
         w2 = w
     else
@@ -56,7 +67,7 @@ end
 
 function inverse(Y1::AbstractArray{T, N}, C_X2::AbstractArray{T, NcNx2}, w::AbstractArray{T, Nw}, L::AffineCouplingOperator) where {T,N,NcNx2,Nw}
     # Split subnetwork output to get scale and shift parts.
-    if size(w)[1:end-1] == size(Y1)[1:end-1]
+    if L.joint_correlation
         w1 = w
         w2 = w
     else
@@ -130,7 +141,7 @@ function backward(ΔY1::AbstractArray{T, N}, Δlogdet::T, X1::AbstractArray{T, N
     Δw2 = apply_backward(L.shift_activation, ΔTm_1, w2, Tm_1)
 
     # Join scale and shift parts.
-    if size(w)[1:N-1] == size(X1)[1:N-1]
+    if L.joint_correlation
         Δw = Δw1 .+ Δw2
     else
         Δw = tensor_cat(Δw1, Δw2)

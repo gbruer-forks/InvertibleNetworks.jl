@@ -13,7 +13,7 @@ nx = 5
 ny = 11
 n_channel = 3
 batchsize = 10
-in_split, split_num = InvertibleNetworks.ConditionalLayerCorrelation_splitdims(n_channel)
+in_split, split_num = InvertibleNetworks.ConditionalCouplingLayer_splitdims(n_channel)
 
 TT = Float64
 X = randn(TT, nx, ny, n_channel, batchsize)

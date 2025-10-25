@@ -8,7 +8,7 @@ export Sigmoid, SigmoidInv, SigmoidGrad
 export GaLU, GaLUgrad
 export ExpClamp, ExpClampInv, ExpClampGrad
 export ReLUlayer, LeakyReLUlayer, SigmoidLayer, Sigmoid2Layer, GaLUlayer, ExpClampLayer
-export IdentityActivation, SoftplusLayer, TanhLayer, CoshLayer, SinhLayer, DampedCoshLayer, DampedSinhLayer
+export IdentityActivation, SoftplusLayer, TanhLayer, CoshLayer, SinhLayer, DampedCoshLayer, DampedSinhLayer, ScaledTanhLayer
 export apply_backward
 
 
@@ -36,6 +36,9 @@ function apply_backward(backward::Function, inverse::Function, Δy::AbstractArra
     backward(Δy, y)
 end
 
+function forward(x::AbstractArray{T, N}, activation::ActivationFunction) where {T, N}
+    activation.forward(x)
+end
 
 IdentityActivation() = ActivationFunction(identity, identity, IdentityGrad)
 IdentityGrad(Δy::AbstractArray{T, N}, x::AbstractArray{T, N}) where {T, N} = Δy
@@ -349,6 +352,30 @@ end
 
 function SoftplusGrad(Δy::AbstractArray{T, N}, y::AbstractArray{T, N}) where {T, N}
     return (exp.(y) .- 1) ./ exp.(y) .* Δy
+end
+
+struct ScaledTanhLayer{S}
+    scale::S
+end
+
+function forward(X::AbstractArray{T, N}, L::ScaledTanhLayer{S}) where {T, N, S}
+    return Tanh(X) .* T.(L.scale)
+end
+
+function inverse(Y::AbstractArray{T, N}, L::ScaledTanhLayer{S}) where {T, N, S}
+    return TanhInv(Y ./ T.(L.scale))
+end
+
+function backward(ΔY, Y::AbstractArray{T, N}, L::ScaledTanhLayer{S}) where {T, N, S}
+    dY_dtanhX = T.(L.scale)
+    tanhX = Y ./ dY_dtanhX
+    ΔtanhX = dY_dtanhX .* ΔY
+    ΔY = TanhGrad(ΔtanhX, tanhX)
+    return ΔY
+end
+
+function apply_backward(L::ScaledTanhLayer{S}, Δy::AbstractArray{T, N}, x::AbstractArray{T, N}, y::AbstractArray{T, N}) where {T, N, S}
+    backward(Δy, y, L)
 end
 
 

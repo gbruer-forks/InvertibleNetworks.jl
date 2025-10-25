@@ -36,7 +36,7 @@ layers = ["test_layers/test_residual_block.jl",
           "test_layers/test_conditional_res_block.jl",
           "test_layers/test_hyperbolic_layer.jl",
           "test_layers/test_actnorm.jl",
-          "test_layers/test_conditional_layer_correlation.jl",
+          "test_layers/test_conditional_coupling_layer.jl",
           "test_layers/test_layer_affine.jl"]
 
 networks = ["test_networks/test_unrolled_loop.jl",
@@ -49,7 +49,7 @@ networks = ["test_networks/test_unrolled_loop.jl",
             "test_networks/test_conditional_hint_network.jl",
             "test_networks/test_conditional_glow_network.jl",
             "test_networks/test_conditional_glow_network2.jl",
-            "test_networks/test_conditional_correlation_network.jl"]
+            "test_networks/test_conditional_coupling_stack.jl"]
 
 
 if test_suite == "all" || test_suite == "basics"

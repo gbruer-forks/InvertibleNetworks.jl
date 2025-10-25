@@ -22,7 +22,7 @@ function invertible_layer_test_gradient(L, P, dP, X, dX; backward_y=true, name, 
             if backward_y
                 ΔX = backward(ΔY, Y, L)[1]
             else
-                ΔX = backward(ΔY, X, L)[1]
+                ΔX = backward(ΔY, X, L)
             end
             return f, ΔX
         end

@@ -75,7 +75,7 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
     grad_test(loss_test, deepcopy(X), deepcopy(dX), deepcopy(ΔX); maxiter=20, h0=4f0, hfactor=5f-1, eT=TT)
 
     if do_flux
-        @show ΔX ΔX_f
+        # @show ΔX ΔX_f
         @show norm(ΔX - ΔX_f) ./ max(norm(ΔX), norm(ΔX_f))
         println("    $name input: Then with Flux's gradient")
         grad_test(loss_test, deepcopy(X), deepcopy(dX), deepcopy(ΔX_f); maxiter=20, h0=4f0, hfactor=5f-1, eT=TT)
@@ -123,7 +123,7 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
         ΔP1 = [isnothing(a) ? Parameter(zero(p.data), nothing) : Parameter(a.data, a.grad) for (p, a) in zip(P, ΔP1t)]
 
         @test f_f ≈ f0
-        @show P ΔP ΔP_f
+        # @show P ΔP ΔP_f
         @test norm(ΔP - ΔP_f) ./ max(norm(ΔP), norm(ΔP_f), 1) < tol
     end
 
@@ -192,7 +192,7 @@ function conditional_layer_test_gradient(L, P, dP, X, Cond, dX; returns_CondY=fa
 
         println("           $name parameters: Done Flux")
 
-        @show P ΔP ΔP_f
+        # @show P ΔP ΔP_f
         @test norm(ΔP - ΔP_f) ./ max(norm(ΔP), norm(ΔP_f), 1) < tol
     end
 

@@ -13,7 +13,7 @@ Random.seed!(11)
 in_shape = (3, 11, 5)
 cond_shape = (3, 11, 7)
 batchsize = 13
-in_split, split_num = InvertibleNetworks.ConditionalLayerCorrelation_splitdims(in_shape[end])
+in_split, split_num = InvertibleNetworks.ConditionalCouplingLayer_splitdims(in_shape[end])
 
 # Input images
 TT = Float64
