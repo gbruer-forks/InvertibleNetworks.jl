@@ -41,9 +41,9 @@ println("Testing $name")
         ΔY = ones(size(Y))
         Δx, Δx0, Δy0, Δd = backward(ΔY, X, 0.5, 0.5, 1, L)
         @test isapprox(norm(Δx - ΔY)/norm(X), 0f0; atol=1f-5)
-        @test size(Δx0) == size(Y)
-        @test size(Δy0) == size(Y)
-        @test size(Δd) == size(Y)
+        @test size(Δx0) == ()
+        @test size(Δy0) == ()
+        @test size(Δd) == ()
     end
 
     @testset verbose = true "$name (with_params=true, logdet=$logdet)" for logdet in [true, false]
@@ -65,9 +65,9 @@ println("Testing $name")
         ΔY = ones(size(Y))
         Δx = backward(ΔY, X, L)
         @test isapprox(norm(Δx - ΔY)/norm(X), 0f0; atol=1f-5)
-        @test size(L.x0.grad) == size(Y)[1:end-1]
-        @test size(L.y0.grad) == size(Y)[1:end-1]
-        @test size(L.d.grad) == size(Y)[1:end-1]
+        @test size(L.x0.grad) == size(L.x0.data)
+        @test size(L.y0.grad) == size(L.y0.data)
+        @test size(L.d.grad) == size(L.d.data)
     end
 end
 

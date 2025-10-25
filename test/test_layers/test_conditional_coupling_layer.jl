@@ -12,11 +12,11 @@ Random.seed!(11)
 nx = 5
 ny = 11
 n_channel = 3
-batchsize = 1
-nx = 1
-ny = 1
-n_channel = 1
-batchsize = 1
+batchsize = 10
+# nx = 1
+# ny = 1
+# n_channel = 1
+# batchsize = 1
 in_split, split_num = InvertibleNetworks.ConditionalCouplingLayer_splitdims(n_channel)
 inv_shape = (nx, ny, split_num)
 
@@ -130,6 +130,65 @@ function test_conditional_layer_correlation_full(L, X, Cond; dp_scale=1, do_flux
     conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name, do_flux)
 end
 
+
+name = "ConditionalCouplingLayer with Stack[LayerConstant, ResidualBlock]"
+@testset verbose=true "$name" begin
+    println("Testing $name")
+    k1 = 3
+    k2 = 3
+    p1 = 1
+    p2 = 1
+    fan = true
+    n_hidden = 4
+    affine = AffineCouplingOperator(; joint_correlation=false)
+    params_shape = get_params_shape(inv_shape, affine)
+    activation = SoftplusLayer()
+    final_activation = IdentityActivation()
+
+    res_shape = collect(params_shape)
+    res_shape[end] = trunc(Int64, params_shape[end]/2)
+
+    const_shape = collect(params_shape)
+    const_shape[end] = ceil(Int64, params_shape[end]/2)
+
+    layer_resblock = ResidualBlock(in_split+n_channel, n_hidden; n_out=res_shape[end], k1, k2, p1, p2, fan, activation, final_activation)
+    layer_constant = LayerConstant(glorot_uniform(const_shape...))
+    layer_stack = LayerStack([layer_constant, layer_resblock])
+    L = ConditionalCouplingLayer(nothing, layer_stack, affine; logdet=true)
+    test_conditional_layer_correlation_full(L, X, Cond; name, do_flux=true)
+end
+
+name = "ConditionalCouplingLayer with Stack[ResidualBlock(RQSpline1), LayerConstant]"
+@testset verbose=true "$name" begin
+    println("Testing $name")
+    k1 = 3
+    k2 = 3
+    p1 = 1
+    p2 = 1
+    fan = true
+    n_hidden = 4
+    affine = AffineCouplingOperator(; joint_correlation=false)
+    params_shape = get_params_shape(inv_shape, affine)
+    activation = SoftplusLayer()
+
+    res_shape = collect(params_shape)
+    res_shape[end] = trunc(Int64, params_shape[end]/2)
+
+    const_shape = collect(params_shape)
+    const_shape[end] = ceil(Int64, params_shape[end]/2)
+
+    final_activation = RQSpline1(; constrained_params=true, with_params=true, logdet=false)
+    final_activation.x0.data = 1f-1 * randn(Float32, (1, 1, res_shape[end]))
+    final_activation.y0.data = 1f-1 * randn(Float32, (1, 1, res_shape[end]))
+    final_activation.d.data = 1f-1 * randn(Float32, (1, 1, res_shape[end]))
+
+    layer_constant = LayerConstant(glorot_uniform(const_shape...))
+    layer_resblock = ResidualBlock(in_split+n_channel, n_hidden; n_out=res_shape[end], k1, k2, p1, p2, fan, activation, final_activation)
+    layer_stack = LayerStack([layer_constant, layer_resblock])
+    L = ConditionalCouplingLayer(nothing, layer_stack, affine; logdet=true)
+    test_conditional_layer_correlation_full(L, X, Cond; name, do_flux=true)
+end
+
 name = "ConditionalCouplingLayer (subnetwork=Affine)"
 @testset verbose = true "$name" begin
     out_chan = split_num * 2
@@ -170,6 +229,7 @@ name = "ConditionalCouplingLayer (subnetwork=RQSpline1, constrained_params, rand
     L = ConditionalCouplingLayer(nothing, layer_constant, invertible_operator)
     test_conditional_layer_correlation_full(L, X, Cond; name, do_flux=false)
 end
+
 
 # Test with ConditionalDecorrelationOperator.
 name = "ConditionalCouplingLayer with ConditionalDecorrelationOperator"

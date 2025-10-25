@@ -366,7 +366,7 @@ function inverse(Y::AbstractArray{T, N}, L::ScaledTanhLayer{S}) where {T, N, S}
     return TanhInv(Y ./ T.(L.scale))
 end
 
-function backward(ΔY, Y::AbstractArray{T, N}, L::ScaledTanhLayer{S}) where {T, N, S}
+function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, L::ScaledTanhLayer{S}) where {T, N, S}
     dY_dtanhX = T.(L.scale)
     tanhX = Y ./ dY_dtanhX
     ΔtanhX = dY_dtanhX .* ΔY

@@ -39,16 +39,16 @@ function inverse(Y::AbstractArray{T, N}, L::RQSpline1_params{LD,C}) where {T,N,L
     return inverse(Y, L.x0.data, L.y0.data, L.d.data, RQSpline1_func{LD,C}())
 end
 
-function backward(X::AbstractArray{T, N}, ΔY::AbstractArray{T, N}, L::RQSpline1_params{LD,C}) where {T,N,LD,C}
-    Δx, Δx0, Δy0, Δd = backward(X, ΔY, L.x0.data, L.y0.data, L.d.data, RQSpline1_func{LD,C}())
-
-    Δx0 = dropdims(sum(Δx0; dims=N); dims=N)
-    Δy0 = dropdims(sum(Δy0; dims=N); dims=N)
-    Δd = dropdims(sum(Δd; dims=N); dims=N)
+function backward(ΔY::AbstractArray{T, N}, X::AbstractArray{T, N}, L::RQSpline1_params{LD,C}) where {T,N,LD,C}
+    Δx, Δx0, Δy0, Δd = backward(ΔY, X, L.x0.data, L.y0.data, L.d.data, RQSpline1_func{LD,C}())
     L.x0.grad = Δx0
     L.y0.grad = Δy0
     L.d.grad = Δd
     return Δx
+end
+
+function apply_backward(L::RQSpline1_params{LD,C}, ΔY::AbstractArray{T, N}, X::AbstractArray{T, N}, Y::AbstractArray{T, N}) where {T,N,LD,C}
+    return backward(ΔY, X, L)
 end
 
 function forward(X::AbstractArray{T, N}, x0, y0, d, L::RQSpline1_func{LD,C}) where {T,N,LD,C}
@@ -122,6 +122,9 @@ function backward(ΔY::AbstractArray{T, N}, Δlogdet::T, X::AbstractArray{T, N},
     Δy0 = getindex.(Δx_Δx0_Δy0_Δd, 3)
     Δd = getindex.(Δx_Δx0_Δy0_Δd, 4)
 
+    x0_size = size(x0)
+    y0_size = size(y0)
+    d_size = size(d)
     if C
         if size(Δx0) != size(x0)
             # Do dummy operation to make the size the same as a broadcasted operation would.
@@ -142,9 +145,24 @@ function backward(ΔY::AbstractArray{T, N}, Δlogdet::T, X::AbstractArray{T, N},
         Δy0 = SigmoidGrad(Δy0, y0; x=y0_orig, low=T(0), high=T(1))
         Δd = ExpClampGrad(Δd, d; x=d_orig, clamp=T(3))
     end
+    Δx0 = sum_broadcasted_dims(Δx0, x0_size)
+    Δy0 = sum_broadcasted_dims(Δy0, y0_size)
+    Δd = sum_broadcasted_dims(Δd, d_size)
     return Δx, Δx0, Δy0, Δd
 end
 
+function sum_broadcasted_dims(x_broad::AbstractArray{T, Nb}, x_size::Tuple) where {T, Nb}
+    if length(x_size) == 0
+        return sum(x_broad)
+    end
+    if Nb == length(x_size) + 1
+        x_broad = dropdims(sum(x_broad; dims=Nb); dims=Nb)
+    end
+    if ndims(x_broad) == length(x_size)
+        return sum(x_broad; dims=[i for (i, xi_size) in enumerate(x_size) if xi_size == 1])
+    end
+    error("I don't know how to handle these shapes: $(size(x_broad)), $(x_size)")
+end
 
 """RQ-spline defined by one point within (0,0) to (1,1) with slope d at that point, and slope y = x elsewhere."""
 function spline(x, x0, y0, d)

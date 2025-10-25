@@ -66,6 +66,7 @@ include("layers/invertible_layer_irim.jl")
 include("layers/invertible_layer_glow.jl")
 include("layers/invertible_layer_hyperbolic.jl")
 include("layers/invertible_layer_hint.jl")
+include("layers/layer_stack.jl")
 
 # Invertible network architectures
 include("networks/invertible_network_hint_multiscale.jl")

@@ -4,7 +4,7 @@ using Flux: get_device
 
 struct ConditionalCouplingLayer <: NeuralNetLayer
     prenetwork::Union{Nothing, Conv1x1, Conv1x1NoMutate}
-    subnetwork::Union{ResidualBlock, LayerConstant}
+    subnetwork::Union{ResidualBlock, LayerConstant, LayerStack}
     invertible_operator::Union{AffineCouplingOperator, RQSpline1Operator, ConditionalDecorrelationOperator}
     logdet::Bool
 end

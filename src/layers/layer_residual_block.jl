@@ -64,7 +64,8 @@ or
 
  See also: [`get_params`](@ref), [`clear_grad!`](@ref)
 """
-struct ResidualBlock <: NeuralNetLayer
+ResidualBlockActType = Union{ActivationFunction, RQSpline1_params}
+struct ResidualBlock{T1<:ResidualBlockActType, T2<:ResidualBlockActType} <: NeuralNetLayer
     W1::Parameter
     W2::Parameter
     W3::Parameter
@@ -73,8 +74,8 @@ struct ResidualBlock <: NeuralNetLayer
     fan::Bool
     strides
     pad
-    activation::ActivationFunction
-    final_activation::ActivationFunction
+    activation::T1
+    final_activation::T2
 end
 
 @Flux.functor ResidualBlock
@@ -83,7 +84,7 @@ end
 #  Constructors
 
 # Constructor
-function ResidualBlock(n_in, n_hidden; n_out=nothing, activation::ActivationFunction=ReLUlayer(), k1=3, k2=3, p1=1, p2=1, s1=1, s2=1, fan=false, ndims=2, final_activation=activation)
+function ResidualBlock(n_in, n_hidden; n_out=nothing, activation=ReLUlayer(), k1=3, k2=3, p1=1, p2=1, s1=1, s2=1, fan=false, ndims=2, final_activation=activation)
     # default/legacy behaviour
     isnothing(n_out) && (n_out = 2*n_in)
 
@@ -100,7 +101,7 @@ function ResidualBlock(n_in, n_hidden; n_out=nothing, activation::ActivationFunc
 end
 
 # Constructor for given weights
-function ResidualBlock(W1, W2, W3, b1, b2; activation::ActivationFunction=ReLUlayer(), p1=1, p2=1, s1=1, s2=1, fan=false, ndims=2, final_activation=activation)
+function ResidualBlock(W1, W2, W3, b1, b2; activation=ReLUlayer(), p1=1, p2=1, s1=1, s2=1, fan=false, ndims=2, final_activation=activation)
 
     # Make weights parameters
     W1 = Parameter(W1)
@@ -121,16 +122,16 @@ function forward(X1::AbstractArray{T, N}, RB::ResidualBlock; save=false) where {
     inds =[i!=(N-1) ? 1 : Colon() for i=1:N]
 
     Y1 = conv(X1, RB.W1.data; stride=RB.strides[1], pad=RB.pad[1]) .+ reshape(RB.b1.data, inds...)
-    X2 = RB.activation.forward(Y1)
+    X2 = forward(Y1, RB.activation)
 
     Y2 = X2 + conv(X2, RB.W2.data; stride=RB.strides[2], pad=RB.pad[2]) .+ reshape(RB.b2.data, inds...)
-    X3 = RB.activation.forward(Y2)
+    X3 = forward(Y2, RB.activation)
 
     cdims3 = DCDims(X1, RB.W3.data; stride=RB.strides[1], padding=RB.pad[1])
     Y3 = ∇conv_data(X3, RB.W3.data, cdims3)
 
     # Return if only recomputing state
-    X4 = RB.fan == true ? RB.final_activation.forward(Y3) : GaLU(Y3)
+    X4 = RB.fan == true ? forward(Y3, RB.final_activation) : GaLU(Y3)
     save && (return Y1, Y2, Y3, X2, X3, X4)
 
     # Finish forward
@@ -153,11 +154,11 @@ function backward(ΔX4::AbstractArray{T, N}, X1::AbstractArray{T, N},
     # Backpropagate residual ΔX4 and compute gradients
     RB.fan == true ? (ΔY3 = apply_backward(RB.final_activation, ΔX4, Y3, X4)) : (ΔY3 = GaLUgrad(ΔX4, Y3))
     ΔX3 = conv(ΔY3, RB.W3.data, cdims3)
-    ΔW3 = ∇conv_filter(ΔY3, RB.activation.forward(Y2), cdims3)
+    ΔW3 = ∇conv_filter(ΔY3, forward(Y2, RB.activation), cdims3)
 
     ΔY2 = apply_backward(RB.activation, ΔX3, Y2, X3)
     ΔX2 = ∇conv_data(ΔY2, RB.W2.data, cdims2) + ΔY2
-    ΔW2 = ∇conv_filter(RB.activation.forward(Y1), ΔY2, cdims2)
+    ΔW2 = ∇conv_filter(forward(Y1, RB.activation), ΔY2, cdims2)
     Δb2 = sum(ΔY2, dims=dims)[inds...]
 
     cdims1 = DenseConvDims(X1, RB.W1.data; stride=RB.strides[1], padding=RB.pad[1])
@@ -190,21 +191,21 @@ function jacobian(ΔX1::AbstractArray{T, N}, Δθ::Array{Parameter, 1},
 
     Y1 = conv(X1, RB.W1.data, cdims1) .+ reshape(RB.b1.data, inds...)
     ΔY1 = conv(ΔX1, RB.W1.data, cdims1) + conv(X1, Δθ[1].data, cdims1) .+ reshape(Δθ[4].data, inds...)
-    X2 = RB.activation.forward(Y1)
+    X2 = forward(Y1, RB.activation)
     ΔX2 = apply_backward(RB.activation, ΔY1, Y1, X2)
 
     cdims2 = DenseConvDims(X2, RB.W2.data; stride=RB.strides[2], padding=RB.pad[2])
 
     Y2 = X2 + conv(X2, RB.W2.data, cdims2) .+ reshape(RB.b2.data, inds...)
     ΔY2 = ΔX2 + conv(ΔX2, RB.W2.data, cdims2) + conv(X2, Δθ[2].data, cdims2) .+ reshape(Δθ[5].data, inds...)
-    X3 = RB.activation.forward(Y2)
+    X3 = forward(Y2, RB.activation)
     ΔX3 = apply_backward(RB.activation, ΔY2, Y2, X3)
 
     cdims3 = DCDims(X1, RB.W3.data; nc=2*size(X1, N-1), stride=RB.strides[1], padding=RB.pad[1])
     Y3 = ∇conv_data(X3, RB.W3.data, cdims3)
     ΔY3 = ∇conv_data(ΔX3, RB.W3.data, cdims3) + ∇conv_data(X3, Δθ[3].data, cdims3)
     if RB.fan == true
-        X4 = RB.activation.forward(Y3)
+        X4 = forward(Y3, RB.final_activation)
         ΔX4 = apply_backward(RB.final_activation, ΔY3, Y3, X4)
     else
         ΔX4, X4 = GaLUjacobian(ΔY3, Y3)
