@@ -41,9 +41,9 @@ end
 
 function backward(ΔY::AbstractArray{T, N}, X::AbstractArray{T, N}, L::RQSpline1_params{LD,C}) where {T,N,LD,C}
     Δx, Δx0, Δy0, Δd = backward(ΔY, X, L.x0.data, L.y0.data, L.d.data, RQSpline1_func{LD,C}())
-    L.x0.grad = Δx0
-    L.y0.grad = Δy0
-    L.d.grad = Δd
+    L.x0.grad = isnothing(L.x0.grad) ? Δx0 : L.x0.grad + Δx0
+    L.y0.grad = isnothing(L.y0.grad) ? Δy0 : L.y0.grad + Δy0
+    L.d.grad = isnothing(L.d.grad) ? Δd : L.d.grad + Δd
     return Δx
 end
 

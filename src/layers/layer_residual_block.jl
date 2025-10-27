@@ -4,6 +4,8 @@
 
 export ResidualBlock, ResidualBlock3D
 
+ResidualBlockActType = Union{ActivationFunction, RQSpline1_params}
+
 """
     RB = ResidualBlock(n_in, n_hidden; k1=3, k2=3, p1=1, p2=1, s1=1, s2=1, fan=false)
     RB = ResidualBlock3D(n_in, n_hidden; k1=3, k2=3, p1=1, p2=1, s1=1, s2=1, fan=false)
@@ -64,7 +66,6 @@ or
 
  See also: [`get_params`](@ref), [`clear_grad!`](@ref)
 """
-ResidualBlockActType = Union{ActivationFunction, RQSpline1_params}
 struct ResidualBlock{T1<:ResidualBlockActType, T2<:ResidualBlockActType} <: NeuralNetLayer
     W1::Parameter
     W2::Parameter
