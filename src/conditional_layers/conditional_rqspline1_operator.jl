@@ -12,7 +12,7 @@ end
 function get_params_shape(input_shape, L::RQSpline1Operator)
     num_params = input_shape[end] * 3
     params_shape_affine = get_params_shape(input_shape, L.affine)
-    if params_shape_affine[1:end-1] != input_shape[1:end-1]
+    if any(params_shape_affine[1:end-1] .!= input_shape[1:end-1])
         error("I didn't set this up yet.")
     end
     num_params = num_params + params_shape_affine[end]

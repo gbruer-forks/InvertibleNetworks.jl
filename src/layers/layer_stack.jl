@@ -4,13 +4,13 @@ using Flux: get_device
 
 StackLayerNetworkType = Union{ResidualBlock, LayerConstant}
 struct LayerStack <: NeuralNetLayer
-    subnetworks::Vector{NeuralNetLayer}
+    subnetworks::Vector{<:NeuralNetLayer}
     splits::Vector{Int}
 end
 
 @Flux.functor LayerStack
 
-function LayerStack(subnetworks::Vector{NeuralNetLayer})
+function LayerStack(subnetworks::Vector{<:NeuralNetLayer})
     splits = zeros(Int, length(subnetworks) + 1)
     return LayerStack(subnetworks, splits)
 end

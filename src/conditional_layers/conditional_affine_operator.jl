@@ -6,15 +6,16 @@ struct AffineCouplingOperator <: NeuralNetLayer
     scale_activation::ActivationFunction
     shift_activation::ActivationFunction
     joint_correlation::Bool
+    just_shift::Bool
 end
 
-function AffineCouplingOperator(; scale_activation = DampedCoshLayer(), shift_activation=DampedSinhLayer(), shift_cond_scalar=false,joint_correlation=false)
+function AffineCouplingOperator(; scale_activation = DampedCoshLayer(), shift_activation=DampedSinhLayer(), shift_cond_scalar=false, joint_correlation=false, just_shift=false)
     C_weights = shift_cond_scalar ? Parameter(nothing) : nothing
-    return AffineCouplingOperator(C_weights, shift_cond_scalar, scale_activation, shift_activation, joint_correlation)
+    return AffineCouplingOperator(C_weights, shift_cond_scalar, scale_activation, shift_activation, joint_correlation, just_shift)
 end
 
 function get_params_shape(input_shape, L::AffineCouplingOperator)
-    if L.joint_correlation
+    if L.joint_correlation || L.just_shift
         num_params = input_shape[end]
     else
         num_params = input_shape[end] * 2
@@ -25,7 +26,7 @@ end
 
 function forward(X1::AbstractArray{T, N}, C_X2::AbstractArray{T, NcNx2}, w::AbstractArray{Tw, Nw}, L::AffineCouplingOperator) where {T,Tw,N,NcNx2,Nw}
     # Split subnetwork output to get scale and shift parts.
-    if L.joint_correlation
+    if L.joint_correlation || L.just_shift
         w1 = w
         w2 = w
     else
@@ -33,7 +34,9 @@ function forward(X1::AbstractArray{T, N}, C_X2::AbstractArray{T, NcNx2}, w::Abst
     end
 
     # Apply correlation decoupling.
-    Sm = L.scale_activation.forward(w1)
+    if !L.just_shift
+        Sm = L.scale_activation.forward(w1)
+    end
     Tm_1 = L.shift_activation.forward(w2)
     if L.shift_cond_scalar
         # Get condition to use for shift. Need to be able to multiply it component-wise with X.
@@ -59,15 +62,20 @@ function forward(X1::AbstractArray{T, N}, C_X2::AbstractArray{T, NcNx2}, w::Abst
         Tm = Tm_1
     end
 
-    Y1 = Sm .* X1 + Tm
-    logdet = scale_logdet_forward(Sm) / size(X1, N)
+    if L.just_shift
+        Y1 = X1 + Tm
+        logdet = T(0)
+    else
+        Y1 = Sm .* X1 + Tm
+        logdet = scale_logdet_forward(Sm) / size(X1, N)
+    end
     return Y1, logdet
 end
 
 
 function inverse(Y1::AbstractArray{T, N}, C_X2::AbstractArray{T, NcNx2}, w::AbstractArray{T, Nw}, L::AffineCouplingOperator) where {T,N,NcNx2,Nw}
     # Split subnetwork output to get scale and shift parts.
-    if L.joint_correlation
+    if L.joint_correlation || L.just_shift
         w1 = w
         w2 = w
     else
@@ -75,7 +83,11 @@ function inverse(Y1::AbstractArray{T, N}, C_X2::AbstractArray{T, NcNx2}, w::Abst
     end
 
     # Invert correlation decoupling.
-    Sm = L.scale_activation.forward(w1)
+    if L.just_shift
+        Sm = T(1)
+    else
+        Sm = L.scale_activation.forward(w1)
+    end
     Tm_1 = L.shift_activation.forward(w2)
     if L.shift_cond_scalar
         Nb = size(Y1, N)
@@ -90,7 +102,11 @@ function inverse(Y1::AbstractArray{T, N}, C_X2::AbstractArray{T, NcNx2}, w::Abst
     else
         Tm = Tm_1
     end
-    X1 = (Y1 - Tm) ./ Sm
+    if L.just_shift
+        X1 = Y1 - Tm
+    else
+        X1 = (Y1 - Tm) ./ Sm
+    end
     return X1, (; w1, w2, Sm, Tm_1, Tm)
 end
 
@@ -103,9 +119,13 @@ function backward(ΔY1::AbstractArray{T, N}, Δlogdet::T, X1::AbstractArray{T, N
     (; w1, w2, Sm, Tm_1, Tm) = saved
     ΔTm = copy(ΔY1)
 
-    ΔSm = ΔY1 .* X1
-    ΔSm = ΔSm + Δlogdet * scale_logdet_backward(Sm)
-    ΔX1 = ΔY1 .* Sm
+    if L.just_shift
+        ΔX1 = ΔY1
+    else
+        ΔSm = ΔY1 .* X1
+        ΔSm = ΔSm + Δlogdet * scale_logdet_backward(Sm)
+        ΔX1 = ΔY1 .* Sm
+    end
 
     # Backpropagate activations.
     if L.shift_cond_scalar
@@ -137,11 +157,15 @@ function backward(ΔY1::AbstractArray{T, N}, Δlogdet::T, X1::AbstractArray{T, N
         ΔTm_1 = ΔTm
         ΔC_X2 = zero(C_X2)
     end
-    Δw1 = apply_backward(L.scale_activation, ΔSm, w1, Sm)
+    if !L.just_shift
+        Δw1 = apply_backward(L.scale_activation, ΔSm, w1, Sm)
+    end
     Δw2 = apply_backward(L.shift_activation, ΔTm_1, w2, Tm_1)
 
     # Join scale and shift parts.
-    if L.joint_correlation
+    if L.just_shift
+        Δw = Δw2
+    elseif L.joint_correlation
         Δw = Δw1 .+ Δw2
     else
         Δw = tensor_cat(Δw1, Δw2)

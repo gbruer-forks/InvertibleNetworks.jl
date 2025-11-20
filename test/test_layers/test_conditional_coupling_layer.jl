@@ -9,22 +9,50 @@ include("../conditional_test.jl")
 Random.seed!(11)
 
 # Input
-nx = 5
-ny = 11
-n_channel = 3
 batchsize = 10
-# nx = 1
-# ny = 1
-# n_channel = 1
+in_shape = (5, 11, 3)
+# in_shape = (1, 1, 1)
 # batchsize = 1
-in_split, split_num = InvertibleNetworks.ConditionalCouplingLayer_splitdims(n_channel)
-inv_shape = (nx, ny, split_num)
+in_split, split_num = InvertibleNetworks.ConditionalCouplingLayer_splitdims(in_shape[end])
+inv_shape = (in_shape[1:end-1]..., split_num)
 
 TT = Float64
-X = randn(TT, nx, ny, n_channel, batchsize)
-X0 = randn(TT, nx, ny, n_channel, batchsize)
+X = randn(TT, in_shape..., batchsize)
+X0 = randn(TT, in_shape..., batchsize)
 dX = X - X0
-Cond = randn(TT, nx, ny, n_channel, batchsize)
+Cond = randn(TT, in_shape..., batchsize)
+
+function test_conditional_layer_correlation_full(L, X, Cond; dp_scale=1, do_flux=false, name="Conditional Layer Correlation")
+    if TT != Float32
+        forward(Float32.(X), Float32.(Cond), L)
+        P = deepcopy(get_params(L))
+        for p in P
+            if isnothing(p.data)
+                continue
+            end
+            p.data = TT.(p.data)
+        end
+    else
+        forward(X, Cond, L)
+        P = deepcopy(get_params(L))
+    end
+
+    # Set up for parameters test.
+    dP = deepcopy(P)
+    for (p, dp) in zip(P, dP)
+        if isnothing(p.data)
+            p.data = [0]
+            dp.data = [0]
+            continue
+        end
+        dp.data = dp_scale * randn(eltype(p.data), size(p.data))
+        dp.data ./= 1 + norm(p.data) + eps(TT)
+    end
+    set_params!(L, deepcopy(P))
+
+    conditional_layer_test_inverse(L, X, Cond, dX)
+    conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name, do_flux)
+end
 
 # # Test activation functions.
 name = "ScaledTanhLayer"
@@ -98,39 +126,6 @@ name = "DampedSinh"
     @test norm(ΔX - ΔX2) < 2f-5
 end
 
-function test_conditional_layer_correlation_full(L, X, Cond; dp_scale=1, do_flux=false, name="Conditional Layer Correlation")
-    if TT != Float32
-        forward(Float32.(X), Float32.(Cond), L)
-        P = deepcopy(get_params(L))
-        for p in P
-            if isnothing(p.data)
-                continue
-            end
-            p.data = TT.(p.data)
-        end
-    else
-        forward(X, Cond, L)
-        P = deepcopy(get_params(L))
-    end
-
-    # Set up for parameters test.
-    dP = deepcopy(P)
-    for (p, dp) in zip(P, dP)
-        if isnothing(p.data)
-            p.data = [0]
-            dp.data = [0]
-            continue
-        end
-        dp.data = dp_scale * randn(eltype(p.data), size(p.data))
-        dp.data ./= 1 + norm(p.data) + eps(TT)
-    end
-    set_params!(L, deepcopy(P))
-
-    conditional_layer_test_inverse(L, X, Cond, dX)
-    conditional_layer_test_gradient(L, P, dP, X, Cond, dX; name, do_flux)
-end
-
-
 name = "ConditionalCouplingLayer with Stack[LayerConstant, ResidualBlock]"
 @testset verbose=true "$name" begin
     println("Testing $name")
@@ -151,7 +146,7 @@ name = "ConditionalCouplingLayer with Stack[LayerConstant, ResidualBlock]"
     const_shape = collect(params_shape)
     const_shape[end] = ceil(Int64, params_shape[end]/2)
 
-    layer_resblock = ResidualBlock(in_split+n_channel, n_hidden; n_out=res_shape[end], k1, k2, p1, p2, fan, activation, final_activation)
+    layer_resblock = ResidualBlock(in_split+in_shape[end], n_hidden; n_out=res_shape[end], k1, k2, p1, p2, fan, activation, final_activation)
     layer_constant = LayerConstant(glorot_uniform(const_shape...))
     layer_stack = LayerStack([layer_constant, layer_resblock])
     L = ConditionalCouplingLayer(nothing, layer_stack, affine; logdet=true)
@@ -183,7 +178,7 @@ name = "ConditionalCouplingLayer with Stack[ResidualBlock(RQSpline1), LayerConst
     final_activation.d.data = 1f-1 * randn(Float32, (1, 1, res_shape[end]))
 
     layer_constant = LayerConstant(glorot_uniform(const_shape...))
-    layer_resblock = ResidualBlock(in_split+n_channel, n_hidden; n_out=res_shape[end], k1, k2, p1, p2, fan, activation, final_activation)
+    layer_resblock = ResidualBlock(in_split+in_shape[end], n_hidden; n_out=res_shape[end], k1, k2, p1, p2, fan, activation, final_activation)
     layer_stack = LayerStack([layer_constant, layer_resblock])
     L = ConditionalCouplingLayer(nothing, layer_stack, affine; logdet=true)
     test_conditional_layer_correlation_full(L, X, Cond; name, do_flux=true)
@@ -213,7 +208,7 @@ name = "ConditionalCouplingLayer (subnetwork=RQSpline1, unconstrained_params, id
 @testset verbose = true "$name" begin
     out_chan = split_num * 5
     affine = AffineCouplingOperator(; joint_correlation=false)
-    layer_constant = LayerConstant(repeat([0.5f0;;; 0.5f0;;; 1.0f0;;;  0.0f0;;; 0.0f0;;;]; inner=(nx, ny, out_chan ÷ 5)))
+    layer_constant = LayerConstant(repeat([0.5f0;;; 0.5f0;;; 1.0f0;;;  0.0f0;;; 0.0f0;;;]; inner=(in_shape[1:end-1]..., out_chan ÷ 5)))
     invertible_operator = RQSpline1Operator(; affine, constrained_params=false)
     L = ConditionalCouplingLayer(nothing, layer_constant, invertible_operator)
     test_conditional_layer_correlation_full(L, X, Cond; name, do_flux=false, dp_scale=1e-1)
@@ -241,10 +236,9 @@ name = "ConditionalCouplingLayer with ConditionalDecorrelationOperator"
     test_conditional_layer_correlation_full(L, X, Cond; name, do_flux=true)
 end
 
-
-@testset verbose = true "ConditionalCouplingLayer (n_channel_cond=$n_channel_cond)" for n_channel_cond in [n_channel, n_channel+2]
+@testset verbose = true "ConditionalCouplingLayer (n_channel_cond=$n_channel_cond)" for n_channel_cond in [in_shape[end], in_shape[end]+2]
     Random.seed!(4123)
-    Cond = randn(TT, nx, ny, n_channel_cond, batchsize)
+    Cond = randn(TT, in_shape[1:end-1]..., n_channel_cond, batchsize)
 
     # Test with the simplest configuration.
     name = "ConditionalCouplingLayer with no subnetworks"
@@ -296,8 +290,8 @@ end
     name = "Conv1x1NoMutate"
     @testset verbose=true "$name" begin
         println("Testing $name")
-        layer_conv1x1 = Conv1x1(n_channel; logdet=true)
-        layer_conv1x1_nomutate = Conv1x1NoMutate(n_channel; logdet=true)
+        layer_conv1x1 = Conv1x1(in_shape[end]; logdet=true)
+        layer_conv1x1_nomutate = Conv1x1NoMutate(in_shape[end]; logdet=true)
 
         P = deepcopy(get_params(layer_conv1x1))
         if TT != Float32
@@ -337,7 +331,7 @@ end
     name = "ConditionalCouplingLayer with Conv1x1NoMutate"
     @testset verbose=true "$name" begin
         println("Testing $name")
-        layer_conv1x1 = Conv1x1NoMutate(n_channel; logdet=true)
+        layer_conv1x1 = Conv1x1NoMutate(in_shape[end]; logdet=true)
         invertible_operator = AffineCouplingOperator()
         layer_constant = LayerConstant(glorot_uniform(get_params_shape(inv_shape, invertible_operator)...))
         L = ConditionalCouplingLayer(layer_conv1x1, layer_constant, invertible_operator; logdet=true)
@@ -348,8 +342,8 @@ end
     name = "ConditionalCouplingLayer with Conv1x1"
     @testset verbose=true "$name" begin
         println("Testing $name")
-        layer_conv1x1 = Conv1x1(n_channel; logdet=true)
-        layer_constant = LayerConstant(glorot_uniform(nx, ny, split_num))
+        layer_conv1x1 = Conv1x1(in_shape[end]; logdet=true)
+        layer_constant = LayerConstant(glorot_uniform(in_shape[1:end-1]..., split_num))
         invertible_operator = AffineCouplingOperator()
         layer_constant = LayerConstant(glorot_uniform(get_params_shape(inv_shape, invertible_operator)...))
         L = ConditionalCouplingLayer(layer_conv1x1, layer_constant, invertible_operator; logdet=true)
@@ -386,7 +380,7 @@ end
         n_hidden = 4
         affine = AffineCouplingOperator(; joint_correlation)
         params_shape = get_params_shape(inv_shape, affine)
-        layer_conv1x1 = Conv1x1NoMutate(n_channel; logdet=true)
+        layer_conv1x1 = Conv1x1NoMutate(in_shape[end]; logdet=true)
         activation = SoftplusLayer()
         final_activation = IdentityActivation()
         layer_resblock = ResidualBlock(in_split+n_channel_cond, n_hidden; n_out=params_shape[end], k1, k2, p1, p2, fan, activation, final_activation)
@@ -409,7 +403,7 @@ end
     name = "ConditionalCouplingLayer with ConditionalDecorrelationOperator and Conv1x1NoMutate"
     @testset verbose=true "$name" begin
         println("Testing $name")
-        layer_conv1x1 = Conv1x1NoMutate(n_channel; logdet=true)
+        layer_conv1x1 = Conv1x1NoMutate(in_shape[end]; logdet=true)
         invertible_operator = ConditionalDecorrelationOperator()
         layer_constant = LayerConstant(glorot_uniform(get_params_shape(inv_shape, invertible_operator)...))
         L = ConditionalCouplingLayer(layer_conv1x1, layer_constant, invertible_operator; logdet=true)
@@ -427,11 +421,31 @@ end
         n_hidden = 4
         invertible_operator = ConditionalDecorrelationOperator()
         params_shape = get_params_shape(inv_shape, invertible_operator)
-        layer_conv1x1 = Conv1x1NoMutate(n_channel; logdet=true)
+        layer_conv1x1 = Conv1x1NoMutate(in_shape[end]; logdet=true)
         activation = SoftplusLayer()
         final_activation = IdentityActivation()
         layer_resblock = ResidualBlock(in_split+n_channel_cond, n_hidden; n_out=params_shape[end], k1, k2, p1, p2, fan, activation, final_activation)
         L = ConditionalCouplingLayer(layer_conv1x1, layer_resblock, invertible_operator; logdet=true)
+        test_conditional_layer_correlation_full(L, X, Cond; name, do_flux=true)
+    end
+
+
+    name = "ConditionalCouplingLayer with ConditionalDecorrelationOperator, Conv1x1NoMutate, and ResidualBlock (split=false)"
+    @testset verbose=true "$name" begin
+        println("Testing $name")
+        k1 = 3
+        k2 = 3
+        p1 = 1
+        p2 = 1
+        fan = true
+        n_hidden = 4
+        invertible_operator = ConditionalDecorrelationOperator()
+        params_shape = get_params_shape(inv_shape, invertible_operator)
+        layer_conv1x1 = Conv1x1NoMutate(in_shape[end]; logdet=true)
+        activation = SoftplusLayer()
+        final_activation = IdentityActivation()
+        layer_resblock = ResidualBlock(n_channel_cond, n_hidden; n_out=params_shape[end], k1, k2, p1, p2, fan, activation, final_activation)
+        L = ConditionalCouplingLayer(layer_conv1x1, layer_resblock, invertible_operator; split=false, logdet=true)
         test_conditional_layer_correlation_full(L, X, Cond; name, do_flux=true)
     end
 end

@@ -90,11 +90,15 @@ function NetworkConditionalCouplingStack(in_shape, cond_shape, L, K;
             end
 
             # 1x1 Convolution and residual block for coupling layers
-            in_split, split_num = ConditionalCouplingLayer_splitdims(in_shape[end])
+            if get(coupling_layer_params, :split, true)
+                in_split, split_num = ConditionalCouplingLayer_splitdims(in_shape[end])
+                sub_shape = tuple(in_shape[1:end-1]..., in_split+cond_shape[end])
+                inv_shape = tuple(in_shape[1:end-1]..., split_num)
+            else
+                sub_shape, inv_shape = cond_shape, in_shape
+            end
 
             prenetwork = prenetwork_generator(in_shape)
-            sub_shape = tuple(in_shape[1:end-1]..., in_split+cond_shape[end])
-            inv_shape = tuple(in_shape[1:end-1]..., split_num)
             invertible_operator = invertible_coupling_operator_generator(inv_shape, sub_shape)
             params_shape = get_params_shape(inv_shape, invertible_operator)
             subnetwork = subnetwork_generator(sub_shape, params_shape)

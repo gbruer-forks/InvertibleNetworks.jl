@@ -286,3 +286,50 @@ name = "(state_network=ActNorm; cond_network=ActNorm; prenetwork=Conv1x1; subnet
     conditional_layer_test_inverse(G, X, Cond, dX; returns_CondY=true)
     conditional_layer_test_gradient(G, P, dP, X, Cond, dX; name, returns_CondY=true)
 end
+
+
+# Test with ResidualBlock, ActNorm, and Conv1x1.
+name = "(state_network=ActNorm; cond_network=ActNorm; prenetwork=Conv1x1; subnetwork=ResidualBlock; split=false)"
+@testset verbose = true "$name (K=$K)" for K in [1, 3]
+    L = 1
+    out_chan = split_num
+    println("Testing $name")
+    subnetwork_generator = function (in_shape, out_shape)
+        activation = SigmoidLayer()
+        final_activation = IdentityActivation()
+        ndims = length(in_shape) - 1
+        kwargs = (; k1=3, k2=1, p1=1, p2=0, s1=1, s2=1, ndims, activation, final_activation)
+        n_hidden = 4
+        ResidualBlock(in_shape[end], n_hidden; n_out=out_shape[end], kwargs..., fan=true)
+    end
+    cond_network_generator = in_shape -> ActNorm(in_shape[end]; logdet=false)
+    state_initial_network_generator = in_shape -> ActNorm(in_shape[end]; logdet=true)
+    state_middle_network_generator = in_shape -> ActNorm(in_shape[end]; logdet=true)
+    state_final_network_generator = in_shape -> ActNorm(in_shape[end]; logdet=true)
+    prenetwork_generator = in_shape -> Conv1x1NoMutate(in_shape[end]; logdet=true)
+    G = NetworkConditionalCouplingStack(in_shape, cond_shape, L, K;
+        cond_network_generator,
+        state_initial_network_generator,
+        state_middle_network_generator,
+        state_final_network_generator,
+        subnetwork_generator,
+        prenetwork_generator,
+        coupling_layer_params = (; split=false),
+    )
+    P = get_params_as_type(G, X, Cond, TT)
+
+    G0 = NetworkConditionalCouplingStack(in_shape, cond_shape, L, K;
+        cond_network_generator,
+        state_initial_network_generator,
+        state_middle_network_generator,
+        state_final_network_generator,
+        subnetwork_generator,
+        prenetwork_generator,
+        coupling_layer_params = (; split=false),
+    )
+    P0 = get_params_as_type(G0, X0, Cond0, TT)
+    dP = P0 - P
+
+    conditional_layer_test_inverse(G, X, Cond, dX; returns_CondY=true)
+    conditional_layer_test_gradient(G, P, dP, X, Cond, dX; name, returns_CondY=true)
+end

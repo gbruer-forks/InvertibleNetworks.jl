@@ -7,6 +7,9 @@ struct RQSpline1_params{LD,C} <: RQSpline1{LD}
     x0::Parameter
     y0::Parameter
     d::Parameter
+    logdet::Bool
+    constrained_params::Bool
+    RQSpline1_params(x0, y0, d, logdet::Bool, constrained_params::Bool) = new{logdet,constrained_params}(x0, y0, d, logdet, constrained_params)
 end
 
 struct RQSpline1_func{LD,C} <: RQSpline1{LD}
@@ -14,7 +17,7 @@ end
 
 function RQSpline1(; constrained_params=true, with_params=true, logdet=true)
     if with_params
-        return RQSpline1_params{logdet,constrained_params}(Parameter(nothing), Parameter(nothing), Parameter(nothing))
+        return RQSpline1_params(Parameter(nothing), Parameter(nothing), Parameter(nothing), logdet, constrained_params)
     else
         return RQSpline1_func{logdet,constrained_params}()
     end

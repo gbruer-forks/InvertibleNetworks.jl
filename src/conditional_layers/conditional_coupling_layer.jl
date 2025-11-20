@@ -7,6 +7,7 @@ struct ConditionalCouplingLayer <: NeuralNetLayer
     subnetwork::Union{ResidualBlock, LayerConstant, LayerStack}
     invertible_operator::Union{AffineCouplingOperator, RQSpline1Operator, ConditionalDecorrelationOperator}
     logdet::Bool
+    split::Bool
 end
 
 @Flux.functor ConditionalCouplingLayer
@@ -16,18 +17,18 @@ function ConditionalCouplingLayer(prenetwork, subnetwork::ResidualBlock; logdet=
     return ConditionalCouplingLayer(prenetwork, subnetwork, logdet; kwargs...)
 end
 
-function ConditionalCouplingLayer(prenetwork, subnetwork; logdet=false, kwargs...)
+function ConditionalCouplingLayer(prenetwork, subnetwork; logdet=false, split=true, kwargs...)
     return ConditionalCouplingLayer(prenetwork, subnetwork, logdet; kwargs...)
 end
 
-function ConditionalCouplingLayer(prenetwork, subnetwork, invertible_operator; logdet=true)
-    return ConditionalCouplingLayer(prenetwork, subnetwork, invertible_operator, logdet)
+function ConditionalCouplingLayer(prenetwork, subnetwork, invertible_operator; logdet=true, split=true)
+    return ConditionalCouplingLayer(prenetwork, subnetwork, invertible_operator, logdet, split)
 end
 
 # For backwards compatibility.
 function ConditionalCouplingLayer(prenetwork, subnetwork, logdet::Bool; scale_activation = DampedCoshLayer(), shift_activation=DampedSinhLayer(), shift_cond_scalar=true)
     invertible_operator = AffineCouplingOperator(; shift_cond_scalar, scale_activation, shift_activation)
-    return ConditionalCouplingLayer(prenetwork, subnetwork, invertible_operator, logdet)
+    return ConditionalCouplingLayer(prenetwork, subnetwork, invertible_operator, logdet, split)
 end
 
 function ConditionalCouplingLayer_splitdims(n_in)
@@ -48,43 +49,64 @@ function forward(X::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalC
         logdet_pre = T(0)
     end
 
-    X1, X2 = tensor_split(X0)
-    if length(X1) == 0
-        X1, X2 = X2, X1
+    if L.split
+        X1, X2 = tensor_split(X0)
+        if length(X1) == 0
+            X1, X2 = X2, X1
+        end
+
+        Y2 = copy(X2)
+
+        # Cat conditioning variable C into network input
+        C_X2 = tensor_cat(X2, C)
+    else
+        X1 = X0
+        C_X2 = C
     end
 
-    Y2 = copy(X2)
-
-    # Cat conditioning variable C into network input
-    C_X2 = tensor_cat(X2, C)
     w = forward(C_X2, L.subnetwork)
 
     # Invertible operator uses w to invertibly transform X1.
     Y1, logdet = forward(X1, C_X2, w, L.invertible_operator)
 
-    Y = tensor_cat(Y1, Y2)
+    if L.split
+        Y = tensor_cat(Y1, Y2)
+    else
+        Y = Y1
+    end
 
     L.logdet == true ? (return Y, logdet_pre + logdet) : (return Y)
 end
 
 # Inverse pass: Input Y, Output X
 function inverse(Y::AbstractArray{T, N}, C::AbstractArray{T, N}, L::ConditionalCouplingLayer; save=false) where {T,N}
+    if L.split
+        Y1, Y2 = tensor_split(Y)
+        if length(Y1) == 0
+            Y1, Y2 = Y2, Y1
+        end
 
-    Y1, Y2 = tensor_split(Y)
-    if length(Y1) == 0
-        Y1, Y2 = Y2, Y1
+        X2 = copy(Y2)
+
+        # Cat conditioning variable C into network input.
+        C_X2 = tensor_cat(X2, C)
+    else
+        C_X2 = C
+        Y1 = Y
+        X2 = nothing
     end
 
-    X2 = copy(Y2)
-
-    # Cat conditioning variable C into network input.
-    C_X2 = tensor_cat(X2, C)
     w = forward(C_X2, L.subnetwork)
 
     # Invertible operator uses w to invertibly get X1.
     X1, saved = inverse(Y1, C_X2, w, L.invertible_operator)
 
-    X0 = tensor_cat(X1, X2)
+    if L.split
+        X0 = tensor_cat(X1, X2)
+    else
+        X0 = X1
+    end
+
     if !isnothing(L.prenetwork)
         X, logdet = inverse(X0, L.prenetwork)
     else
@@ -100,12 +122,16 @@ function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, C::AbstractA
     # Recompute forward state
     X, X1, X2, w, saved = inverse(Y, C, L; save=true)
 
-    # Backpropagate coupling.
-    ΔY1, ΔY2 = tensor_split(ΔY)
-    if length(ΔY1) == 0
-        ΔY1, ΔY2 = ΔY2, ΔY1
+    if L.split
+        ΔY1, ΔY2 = tensor_split(ΔY)
+        if length(ΔY1) == 0
+            ΔY1, ΔY2 = ΔY2, ΔY1
+        end
+        C_X2 = tensor_cat(X2, C)
+    else
+        C_X2 = C
+        ΔY1 = ΔY
     end
-    C_X2 = tensor_cat(X2, C)
 
     # Invertible operator applies adjoint Jacobian of Y1.
 
@@ -118,14 +144,20 @@ function backward(ΔY::AbstractArray{T, N}, Y::AbstractArray{T, N}, C::AbstractA
     # @show size(X) size(X1) size(X2) size(C) size(C_X2) size(ΔC_X2_invop) size(ΔC_X2_subnet)
     ΔC_X2 = ΔC_X2_invop + ΔC_X2_subnet
 
-    ΔX2, ΔC = tensor_split(ΔC_X2; split_index=size(ΔY2)[N-1])
-    ΔX2 = ΔX2 + ΔY2
+    if L.split
+        ΔX2, ΔC = tensor_split(ΔC_X2; split_index=size(ΔY2)[N-1])
+        ΔX2 = ΔX2 + ΔY2
+        ΔX0 = tensor_cat(ΔX1, ΔX2)
+        X0 = tensor_cat(X1, X2)
+    else
+        ΔC = ΔC_X2
+        ΔX0 = ΔX1
+        X0 = X1
+    end
 
     # Backpropagate prenetwork.
-
-    ΔX0 = tensor_cat(ΔX1, ΔX2)
     if !isnothing(L.prenetwork)
-        ΔX = inverse((ΔX0, tensor_cat(X1, X2)), L.prenetwork)[1]
+        ΔX = inverse((ΔX0, X0), L.prenetwork)[1]
     else
         ΔX = ΔX0
     end
