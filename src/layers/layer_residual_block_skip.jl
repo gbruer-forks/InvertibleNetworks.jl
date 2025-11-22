@@ -7,14 +7,14 @@ ResidualBlockActTypeSkip = Union{ActivationFunction, RQSpline1_params}
 Same as ResidualBlock but has an extra set of weights and skip connection such that the output is
 proportional to the input when all weights are set to 0.
 """
-struct ResidualBlockSkip{T1<:ResidualBlockActTypeSkip, T2<:ResidualBlockActTypeSkip, T, N} <: NeuralNetLayer
+struct ResidualBlockSkip{T1<:ResidualBlockActTypeSkip, T2<:ResidualBlockActTypeSkip} <: NeuralNetLayer
     W1::Parameter
     W2::Parameter
     W3::Parameter
     W_13::Parameter
     b1::Parameter
     b2::Parameter
-    W_13_offset::Array{T, N}
+    W_13_offset
     strides
     pad
     activation::T1

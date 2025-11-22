@@ -54,7 +54,7 @@ function backward(ΔY1::AbstractArray{T, N}, Δlogdet::T, X1::AbstractArray{T, N
     dY1_dS = -scale .* b
     dY1_db = -scale .* S
 
-    dscale_dS = S ./ (1 .- S .^ 2) .^ (3/2)
+    dscale_dS = S ./ (1 .- S .^ 2) .^ T(3/2)
 
     dlogdet_dscale = scale_logdet_backward(scale)
 

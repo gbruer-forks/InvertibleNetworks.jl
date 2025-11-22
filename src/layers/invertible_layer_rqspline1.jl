@@ -1,3 +1,4 @@
+import Flux
 
 export RQSpline1
 
@@ -25,14 +26,15 @@ end
 
 function forward(X::AbstractArray{T, N}, L::RQSpline1_params{LD,C}) where {T,N,LD,C}
     if isnothing(L.x0.data)
+        device = Flux.get_device(X)
         if C
-            L.x0.data = fill(T(0), size(X)[1:N-1])
-            L.y0.data = fill(T(0), size(X)[1:N-1])
-            L.d.data = fill(T(0), size(X)[1:N-1])
+            L.x0.data = fill(T(0), size(X)[1:N-1]) |> device
+            L.y0.data = fill(T(0), size(X)[1:N-1]) |> device
+            L.d.data = fill(T(0), size(X)[1:N-1]) |> device
         else
-            L.x0.data = fill(T(0.5), size(X)[1:N-1])
-            L.y0.data = fill(T(0.5), size(X)[1:N-1])
-            L.d.data = fill(T(1), size(X)[1:N-1])
+            L.x0.data = fill(T(0.5), size(X)[1:N-1]) |> device
+            L.y0.data = fill(T(0.5), size(X)[1:N-1]) |> device
+            L.d.data = fill(T(1), size(X)[1:N-1]) |> device
         end
     end
     return forward(X, L.x0.data, L.y0.data, L.d.data, RQSpline1_func{LD,C}())
@@ -131,18 +133,18 @@ function backward(ΔY::AbstractArray{T, N}, Δlogdet::T, X::AbstractArray{T, N},
     if C
         if size(Δx0) != size(x0)
             # Do dummy operation to make the size the same as a broadcasted operation would.
-            x0 = x0 .+ zeros(size(Δx0))
-            x0_orig = x0_orig .+ zeros(size(Δx0))
+            x0 = x0 .+ Flux.get_device(x0)(zeros(T, size(Δx0)))
+            x0_orig = x0_orig .+ Flux.get_device(x0_orig)(zeros(T, size(Δx0)))
         end
         if size(Δy0) != size(y0)
             # Do dummy operation to make the size the same as a broadcasted operation would.
-            y0 = y0 .+ zeros(size(Δy0))
-            y0_orig = y0_orig .+ zeros(size(Δy0))
+            y0 = y0 .+ Flux.get_device(y0)(zeros(T, size(Δy0)))
+            y0_orig = y0_orig .+ Flux.get_device(y0_orig)(zeros(T, size(Δy0)))
         end
         if size(Δd) != size(d)
             # Do dummy operation to make the size the same as a broadcasted operation would.
-            d = d .+ zeros(size(Δd))
-            d_orig = d_orig .+ zeros(size(Δd))
+            d = d .+ Flux.get_device(d)(zeros(T, size(Δd)))
+            d_orig = d_orig .+ Flux.get_device(d_orig)(zeros(T, size(Δd)))
         end
         Δx0 = SigmoidGrad(Δx0, x0; x=x0_orig, low=T(0), high=T(1))
         Δy0 = SigmoidGrad(Δy0, y0; x=y0_orig, low=T(0), high=T(1))
